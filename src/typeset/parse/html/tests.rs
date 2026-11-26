@@ -586,7 +586,7 @@ fn show(inlines: &[Inline]) -> String {
 }
 
 fn paragraph(source: &str) -> String {
-    match crate::typeset::parse::parse(source).blocks.as_slice() {
+    match crate::typeset::parse::parse_all(source).blocks.as_slice() {
         [Block::Paragraph(content)] => show(content),
         other => panic!("not one paragraph: {other:?}"),
     }

@@ -9,7 +9,7 @@ use proptest::prelude::*;
 
 use super::browser;
 use crate::testing::props_config;
-use crate::typeset::parse::parse;
+use crate::typeset::parse::parse_all;
 
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
@@ -100,7 +100,7 @@ proptest! {
     fn any_document_of_wrapper_tags_reads_with_places_on_its_source_and_all_its_words(
         (source, marks) in documents(),
     ) {
-        let document = parse(&source);
+        let document = parse_all(&source);
         for (path, _) in document.blocks() {
             let Some(place) = document.places.get(&path) else {
                 continue;
@@ -161,7 +161,7 @@ proptest! {
     fn every_tag_of_any_document_is_read_or_shown_and_none_is_made_up(
         (source, _marks) in documents(),
     ) {
-        let document = parse(&source);
+        let document = parse_all(&source);
         let shown = format!("{:?}", document.blocks);
         for name in ["p", "div", "center", "details", "summary", "a", "h1", "img"] {
             for end in [false, true] {

@@ -2163,4 +2163,50 @@ pub const ROWS: &[Row] = &[
               p "![B](b.png)" @5=47..72
         "#,
     },
+    // The level: `<u>` is a phrase at "all" only (GitHub's level has the
+    // same two rows in `GITHUB_ROWS`).
+    Row {
+        name: "u is a phrase at the level all",
+        source: "A <u>b</u> c\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..12
+        "#,
+    },
+    Row {
+        name: "u in an HTML block is a phrase at the level all",
+        source: "<p>A <u>b</u> c</p>\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..19
+        "#,
+    },
+];
+
+/// What GitHub's level reads differently from the level "all": the tags
+/// that only "all" reads are dim tags, and what they hold is read on its
+/// own. The rows of `ROWS` that this list does not repeat read the same at
+/// both levels.
+pub const GITHUB_ROWS: &[Row] = &[
+    Row {
+        name: "center is no wrapper at GitHub's level: its tags are dim",
+        source: "<center>Text</center>\n",
+        blocks: r#"
+            html "<center>" @1~0..21
+            p "Text" @1~0..21
+            html "</center>\n" @1~0..21
+        "#,
+    },
+    Row {
+        name: "u is no phrase at GitHub's level: its tags stay in the paragraph",
+        source: "A <u>b</u> c\n",
+        blocks: r#"
+            p "A <u>b</u> c" @1=0..12
+        "#,
+    },
+    Row {
+        name: "u in an HTML block is no phrase at GitHub's level",
+        source: "<p>A <u>b</u> c</p>\n",
+        blocks: r#"
+            p "A <u>b</u> c" @1=0..19
+        "#,
+    },
 ];

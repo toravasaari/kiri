@@ -1,4 +1,4 @@
-//! The tree of the HTML in a container read as the blocks of the model, by the table of elements, at the level "all".
+//! The tree of the HTML in a container read as the blocks of the model, by the table of elements and the level of HTML.
 //!
 //! The parts of a container (the document, a quote, a list item) come in
 //! order: HTML blocks as comrak cut them, and Markdown blocks already read.
@@ -27,7 +27,7 @@
 
 use comrak::nodes::{LineColumn, Sourcepos};
 
-use super::elements::{Holds, Kind, Treatment, get, is_centred};
+use super::elements::{Holds, HtmlLevel, Kind, Treatment, get, is_centred};
 use super::inline::{Leaf, run_inlines};
 use super::tree::{Closing, NodeKind, Opened, Piece, Span, Tree};
 use super::{decode_entities, id_of, spanned_tokens};
@@ -76,7 +76,10 @@ impl HtmlBlock<'_> {
 }
 
 /// The blocks of a container of `parts`, in order, with their places.
-pub(in crate::typeset::parse) fn read(parts: Vec<Part>) -> Vec<(Block, Position)> {
+pub(in crate::typeset::parse) fn read(
+    parts: Vec<Part>,
+    level: HtmlLevel,
+) -> Vec<(Block, Position)> {
     let mut texts = Vec::with_capacity(parts.len());
     let mut markdown = Vec::with_capacity(parts.len());
     for part in parts {
@@ -125,6 +128,7 @@ pub(in crate::typeset::parse) fn read(parts: Vec<Part>) -> Vec<(Block, Position)
         }
     }
     let mut reader = Reader {
+        level,
         tree: &tree,
         html: &html,
         markdown,
@@ -144,6 +148,8 @@ pub(in crate::typeset::parse) fn read(parts: Vec<Part>) -> Vec<(Block, Position)
 type Round = Option<(usize, Sourcepos)>;
 
 struct Reader<'t> {
+    /// The level of HTML that is read.
+    level: HtmlLevel,
     tree: &'t Tree,
     html: &'t [Option<HtmlBlock<'t>>],
     /// The blocks of each block of Markdown, taken when it is read.
@@ -414,7 +420,9 @@ impl<'t> Reader<'t> {
         round: Round,
         out: &mut Vec<(Block, Position)>,
     ) {
-        if !self.holds_allowed(node, open) {
+        // An element that the level does not read has no effect: its tags
+        // are dim and what it holds is read on its own.
+        if open.row.is_beyond(self.level) || !self.holds_allowed(node, open) {
             return self.dissolve(node, open, round, out);
         }
         // An element that something else ended before it held anything, such
@@ -541,7 +549,7 @@ impl<'t> Reader<'t> {
         let leaves = self.children[node]
             .iter()
             .filter_map(|&child| self.leaf(child));
-        run_inlines(leaves)
+        run_inlines(leaves, self.level)
     }
 
     /// The leaf of a run that `node` is.
@@ -579,7 +587,10 @@ impl<'t> Reader<'t> {
         );
         let start = self.tree.nodes[leaves[0]].at.bytes.start;
         let end = self.end_of(leaves[leaves.len() - 1]);
-        let inlines = run_inlines(leaves.iter().filter_map(|&node| self.leaf(node)));
+        let inlines = run_inlines(
+            leaves.iter().filter_map(|&node| self.leaf(node)),
+            self.level,
+        );
         let shows = inlines.iter().any(|inline| match inline {
             Inline::Html(_) => false,
             Inline::Text(text) => !text.trim_ascii().is_empty(),

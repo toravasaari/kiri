@@ -20,7 +20,7 @@ use std::fmt::Write;
 use scraper::{ElementRef, Html};
 
 use crate::typeset::model::{Block, Inline};
-use crate::typeset::parse::parse;
+use crate::typeset::parse::parse_all;
 
 /// What a document is, as far as the comparison goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,7 +254,7 @@ fn kiri_blocks(blocks: &[Block]) -> Vec<Shape> {
 
 /// What kiri reads of `source`.
 pub fn kiri(source: &str) -> Vec<Shape> {
-    kiri_blocks(&parse(source).blocks)
+    kiri_blocks(&parse_all(source).blocks)
 }
 
 // ---------- the documents ----------

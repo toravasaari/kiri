@@ -4,7 +4,7 @@ pub mod csv;
 mod footnotes;
 mod front_matter;
 mod html;
-pub use html::{InnerHeading, anchor_ids};
+pub use html::{HtmlLevel, InnerHeading, anchor_ids};
 #[cfg(test)]
 mod inline_places;
 mod unknown;
@@ -30,21 +30,62 @@ pub fn parse(source: &str) -> Document {
 /// Parses Markdown, with or without recognising `front_matter` at its
 /// start.
 pub fn parse_with(source: &str, front_matter: bool) -> Document {
-    parse_with_warnings(source, front_matter).0
+    let options = ParseOptions {
+        front_matter,
+        ..ParseOptions::default()
+    };
+    parse_with_warnings(source, &options).0
 }
 
-/// Parses Markdown as [`parse_with`] does, and tells what it leaves out:
-/// a warning for each kind of Markdown element that the document model
-/// has no place for, at the line where the first of its kind starts.
-pub fn parse_with_warnings(source: &str, front_matter: bool) -> (Document, Vec<Diagnostic>) {
-    parse_with_options(source, front_matter, &options())
+/// Parses Markdown at the level "all" of HTML, which reads `<u>` and
+/// `<center>` too: for the tests whose subject is what the tables of
+/// elements say, not the default level.
+#[cfg(test)]
+pub fn parse_all(source: &str) -> Document {
+    let options = ParseOptions {
+        html: HtmlLevel::All,
+        ..ParseOptions::default()
+    };
+    parse_with_warnings(source, &options).0
+}
+
+/// What the reading of a document depends on, as the settings give it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Whether front matter at the start is recognised.
+    pub front_matter: bool,
+    /// The level of HTML that is read: what GitHub shows, or all that kiri
+    /// reads.
+    pub html: HtmlLevel,
+}
+
+impl Default for ParseOptions {
+    /// Front matter recognised and GitHub's level of HTML, as `parse` reads.
+    fn default() -> Self {
+        Self {
+            front_matter: true,
+            html: HtmlLevel::default(),
+        }
+    }
+}
+
+/// Parses Markdown as [`parse_with`] does with `parse_options`, and tells
+/// what it leaves out: a warning for each kind of Markdown element that the
+/// document model has no place for, at the line where the first of its kind
+/// starts.
+pub fn parse_with_warnings(
+    source: &str,
+    parse_options: &ParseOptions,
+) -> (Document, Vec<Diagnostic>) {
+    parse_with_options(source, parse_options, &options())
 }
 
 fn parse_with_options(
     source: &str,
-    front_matter: bool,
+    parse_options: &ParseOptions,
     options: &Options<'_>,
 ) -> (Document, Vec<Diagnostic>) {
+    let front_matter = parse_options.front_matter;
     let split = front_matter.then(|| front_matter::split(source)).flatten();
     let (front_matter, markdown) = match split {
         Some((front_matter, markdown)) => (Some(Block::FrontMatter(front_matter)), markdown),
@@ -52,7 +93,7 @@ fn parse_with_options(
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, options);
-    let mut unknown = Unknown::default();
+    let mut unknown = Unknown::new(parse_options.html);
     let (blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_bytes = source.len() - markdown.len();
@@ -272,7 +313,7 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
             ),
         })
         .collect();
-    let mut blocks = html::read(parts);
+    let mut blocks = html::read(parts, unknown.html);
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
 }
@@ -448,7 +489,7 @@ fn inlines(parent: Node<'_>, unknown: &mut Unknown) -> Vec<Inline> {
 }
 
 fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) -> Vec<Inline> {
-    let mut joined = Joined::default();
+    let mut joined = Joined::new(unknown.html);
     // Whether the last node was math read as text, which the text around
     // it joins.
     let mut after_math = false;
@@ -500,7 +541,7 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &options_without_math());
     // Nothing here is Markdown that the parser reads, so nothing is left out.
-    let mut unknown = Unknown::default();
+    let mut unknown = Unknown::new(HtmlLevel::default());
     (root.first_child())
         .map(|paragraph| inlines(paragraph, &mut unknown))
         .unwrap_or_default()
@@ -512,7 +553,7 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
 pub fn html_headings(source: &str) -> Vec<InnerHeading> {
     let mut found = html::headings(source);
     for heading in &mut found {
-        heading.content = html_inlines(std::mem::take(&mut heading.content));
+        heading.content = html_inlines(std::mem::take(&mut heading.content), HtmlLevel::default());
     }
     found
 }

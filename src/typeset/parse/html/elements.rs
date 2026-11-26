@@ -34,6 +34,28 @@ pub enum Level {
     Neither,
 }
 
+/// The level of HTML that a document is read at, which the setting `html`
+/// chooses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HtmlLevel {
+    /// What GitHub shows.
+    #[default]
+    Github,
+    /// All that kiri reads: `<u>` and `<center>` as well.
+    All,
+}
+
+impl Level {
+    /// Whether an element of this level is read at the level `chosen`.
+    pub fn is_read_at(self, chosen: HtmlLevel) -> bool {
+        match self {
+            Self::Github => true,
+            Self::All => chosen == HtmlLevel::All,
+            Self::Neither => false,
+        }
+    }
+}
+
 /// What an element may hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Holds {
@@ -86,10 +108,12 @@ pub enum Phrase {
 }
 
 impl Phrase {
-    /// The phrase that the element named `name` is, from its row.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match get(name)?.treatment {
-            Treatment::Phrase(phrase) => Some(phrase),
+    /// The phrase that the element named `name` is, from its row, when its
+    /// row is read at the level `level`.
+    pub fn from_name(name: &str, level: HtmlLevel) -> Option<Self> {
+        let row = get(name)?;
+        match row.treatment {
+            Treatment::Phrase(phrase) if row.level.is_read_at(level) => Some(phrase),
             _ => None,
         }
     }
@@ -134,6 +158,13 @@ pub struct Element {
 }
 
 impl Element {
+    /// Whether the level `chosen` is below the one that has this element:
+    /// its tags have no effect. The elements that no level has are not
+    /// beyond it; they are left as source at every level.
+    pub fn is_beyond(&self, chosen: HtmlLevel) -> bool {
+        self.level == Level::All && chosen == HtmlLevel::Github
+    }
+
     /// Whether its start tag `tag` centres what it holds.
     pub(super) fn centres_with(&self, tag: &Tag) -> bool {
         match self.treatment {

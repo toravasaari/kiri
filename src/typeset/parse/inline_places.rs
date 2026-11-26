@@ -345,7 +345,8 @@ fn count_texts(reads: Reads) -> (usize, Vec<(String, usize)>) {
                 continue;
             }
             let (held, feature) = nodes_text(node, reads);
-            let inlines = inlines(node, &mut Unknown::default());
+            // At the level "all", which the helpers above read at.
+            let inlines = inlines(node, &mut Unknown::new(HtmlLevel::All));
             let model = match reads {
                 Reads::PlainText => Inline::plain_text(&inlines),
                 Reads::DocumentText => {
