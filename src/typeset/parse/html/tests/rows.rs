@@ -2278,6 +2278,45 @@ pub const ROWS: &[Row] = &[
             p "A [u]b[/u] c" @1=0..19
         "#,
     },
+    // A `<pre>` or `<textarea>` that a blank line cuts: its end tag is in
+    // Markdown, and the HTML after it is read as before.
+    Row {
+        name: "a pre cut by a blank line in a details does not turn the rest into text",
+        source: "<details>\n<summary>Log</summary>\n<pre>\nline 1\n\nline 2\n</pre>\n</details>\n\n<div align=\"center\">footer</div>\n\n<h2 align=\"center\">Next</h2>\n",
+        blocks: r#"
+            details "Log" @1=0..71
+              html "<pre>" @3~0..45
+              p "line 1" @4~0..45
+              p "line 2 </pre>" @6=47..60
+            centred @10=73..105
+              p "footer" @10~73..105
+            centred @12=107..135
+              h2 "Next" @12~107..135
+        "#,
+    },
+    Row {
+        name: "a pre cut by a blank line in a centred div does not turn the rest into text",
+        source: "<div align=\"center\">\n<pre>\nfoo\n\nbar\n</pre>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            centred @1=0..49
+              html "<pre>" @2~0..30
+              p "foo" @3~0..30
+              p "bar </pre>" @5=32..42
+            centred @9=51..78
+              p "after" @9~51..78
+        "#,
+    },
+    Row {
+        name: "a textarea never ended in a div is an unpaired tag",
+        source: "<div>\n<textarea>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            html "<div>" @1~0..23
+            html "<textarea>" @2~0..23
+            p "</div>" @3~0..23
+            centred @5=25..52
+              p "after" @5~25..52
+        "#,
+    },
 ];
 
 /// What GitHub's level reads differently from the level "all": the tags
@@ -2503,6 +2542,41 @@ pub const HIDE_ROWS: &[Row] = &[
         source: "<!-- note -->\n",
         blocks: r#"
             html "<!-- note -->\n" @1=0..13
+        "#,
+    },
+    // A `<pre>` or `<textarea>` that a blank line cuts: its end tag is in
+    // Markdown, and the HTML after it is read as before.
+    Row {
+        name: "a pre cut by a blank line in a details does not turn the rest into text at hide",
+        source: "<details>\n<summary>Log</summary>\n<pre>\nline 1\n\nline 2\n</pre>\n</details>\n\n<div align=\"center\">footer</div>\n\n<h2 align=\"center\">Next</h2>\n",
+        blocks: r#"
+            details "Log" @1=0..71
+              p "line 1" @4~0..45
+              p "line 2 " @6=47..60
+            centred @10=73..105
+              p "footer" @10~73..105
+            centred @12=107..135
+              h2 "Next" @12~107..135
+        "#,
+    },
+    Row {
+        name: "a pre cut by a blank line in a centred div does not turn the rest into text at hide",
+        source: "<div align=\"center\">\n<pre>\nfoo\n\nbar\n</pre>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            centred @1=0..49
+              p "foo" @3~0..30
+              p "bar " @5=32..42
+            centred @9=51..78
+              p "after" @9~51..78
+        "#,
+    },
+    Row {
+        name: "a textarea never ended in a div is an unpaired tag at hide",
+        source: "<div>\n<textarea>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            p "</div>" @3~0..23
+            centred @5=25..52
+              p "after" @5~25..52
         "#,
     },
 ];

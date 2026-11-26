@@ -156,9 +156,11 @@ impl Counts {
             starts: vec![0; TABLE.len()],
             ends: vec![0; TABLE.len()],
         };
-        let mut raw = None;
         for piece in pieces {
             let Piece::Html(tokens) = piece else { continue };
+            // A raw-text element that its piece leaves open is not open in
+            // the next one: see `Builder::end_raw`.
+            let mut raw = None;
             for (token, _) in tokens {
                 match (token, raw) {
                     (Token::Close(name), Some(inside)) => {
@@ -226,6 +228,7 @@ impl Tree {
                 Piece::Source => builder.leaf(Span::none(piece), NodeKind::Source),
                 Piece::Markdown => builder.markdown(piece),
             }
+            builder.end_raw();
         }
         builder.finish()
     }
@@ -240,6 +243,19 @@ impl Span {
 impl Builder {
     fn top(&self) -> Option<usize> {
         self.stack.last().copied()
+    }
+
+    /// Ends the raw-text element that its piece leaves open. CommonMark's
+    /// HTML block of a `<pre>` that starts it runs to its end tag or to the
+    /// end of the container, so this is the case of a `<pre>` that began
+    /// inside a block that a blank line cut: its end tag, if it has one, is
+    /// in Markdown. The element is an unpaired start tag.
+    fn end_raw(&mut self) {
+        if let Some((_, pushed)) = self.raw.take()
+            && pushed
+        {
+            self.pop(Closing::Unpaired);
+        }
     }
 
     fn leaf(&mut self, at: Span, kind: NodeKind) {

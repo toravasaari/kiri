@@ -217,6 +217,17 @@ fn nothing_in_a_raw_text_element_is_a_tag() {
     );
 }
 
+/// A `<pre>` that began inside an HTML block that a blank line cut has its
+/// end tag in Markdown, which the tree does not see: it is not open in the
+/// next piece, and the HTML after it is read.
+#[test]
+fn a_raw_text_element_that_its_piece_leaves_open_does_not_run_on() {
+    assert_eq!(
+        tree("<div>\n<pre>\nfoo\n\nbar\n</pre>\n</div>\n\n<p>x</p>\n"),
+        "div\n  pre [unpaired start]\n    text \"foo\"\n  markdown\np\n  text \"x\"\n"
+    );
+}
+
 #[test]
 fn comments_are_leaves_and_a_block_that_cannot_be_read_is_one() {
     assert_eq!(
