@@ -98,3 +98,15 @@ TOML parse error at line 2, column 8
 2 | html = true
   |        ^^^^
 wanted string or table
+---
+TOML parse error at line 2, column 13
+  |
+2 | html_tags = "gone"
+  |             ^^^^^^
+unknown variant `gone`, expected `dim` or `hide`
+---
+TOML parse error at line 2, column 13
+  |
+2 | html_tags = 1
+  |             ^
+wanted string or table

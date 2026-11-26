@@ -32,7 +32,7 @@ use crate::present::ledger::DEFAULT_IMAGE_MEMORY_MB;
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::term::Mode;
 use crate::typeset::inputs::{Headings, RenderErrors, TableRows};
-use crate::typeset::parse::HtmlLevel;
+use crate::typeset::parse::{HtmlLevel, HtmlTags};
 use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::{Paper, Theme};
@@ -599,6 +599,12 @@ settings! {
         /// all that kiri reads, `<u>` and `<center>` as well.
         markdown_html in html: HtmlLevel = HtmlLevel::Github;
         key "markdown.html", owner "typeset::parse", effect Layout, medium Cells, scope Pager,
+        flag None, help None, env Env::NONE;
+
+        /// What becomes of the tags of HTML that have no effect: shown dim,
+        /// or left out.
+        markdown_html_tags in html_tags: HtmlTags = HtmlTags::Dim;
+        key "markdown.html_tags", owner "typeset::parse", effect Layout, medium Cells, scope Pager,
         flag None, help None, env Env::NONE;
     }
     special {

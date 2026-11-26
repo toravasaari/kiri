@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::term::Mode;
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::inputs::{FrontMatterStyle, Headings, RenderErrors, TableRows};
-use crate::typeset::parse::HtmlLevel;
+use crate::typeset::parse::{HtmlLevel, HtmlTags};
 use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {
@@ -1800,6 +1800,8 @@ fn a_wrong_value_in_the_file_names_the_values_it_takes() {
         "images = \"no\"\n",
         "[markdown]\nhtml = \"everything\"\n",
         "[markdown]\nhtml = true\n",
+        "[markdown]\nhtml_tags = \"gone\"\n",
+        "[markdown]\nhtml_tags = 1\n",
     ]
     .into_iter()
     .map(error)
@@ -2375,4 +2377,51 @@ fn the_html_level_is_githubs_unless_the_file_says_otherwise() {
     );
     let settings = choices.with_theme(Theme::default());
     assert_eq!(settings.markdown_html, HtmlLevel::All);
+}
+
+#[test]
+fn the_markdown_html_tags_key_takes_dim_or_hide() {
+    check_key(
+        |config| config.markdown.html_tags,
+        &[
+            ("[markdown]\nhtml_tags = \"dim\"\n", HtmlTags::Dim),
+            ("[markdown]\nhtml_tags = \"hide\"\n", HtmlTags::Hide),
+        ],
+        &[
+            "[markdown]\nhtml_tags = \"gone\"\n",
+            "[markdown]\nhtml_tags = false\n",
+        ],
+    );
+    // Both keys of the table at once.
+    let config = parse(
+        "[markdown]\nhtml = \"all\"\nhtml_tags = \"hide\"\n",
+        Path::new("/c"),
+        &Environment::default(),
+    )
+    .unwrap();
+    assert_eq!(config.markdown.html, Some(HtmlLevel::All));
+    assert_eq!(config.markdown.html_tags, Some(HtmlTags::Hide));
+}
+
+#[test]
+fn the_tags_with_no_effect_are_dim_unless_the_file_says_otherwise() {
+    let env = Environment::default();
+    let choices = choose(&Options::default(), &env, &Config::default());
+    assert_eq!(
+        choices.markdown_html_tags,
+        Setting::new(HtmlTags::Dim, Origin::Default)
+    );
+    let config = parse(
+        "[markdown]\nhtml_tags = \"hide\"\n",
+        Path::new("/c"),
+        &Environment::default(),
+    )
+    .unwrap();
+    let choices = choose(&Options::default(), &env, &config);
+    assert_eq!(
+        choices.markdown_html_tags,
+        Setting::new(HtmlTags::Hide, Origin::File)
+    );
+    let settings = choices.with_theme(Theme::default());
+    assert_eq!(settings.markdown_html_tags, HtmlTags::Hide);
 }

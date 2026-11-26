@@ -127,6 +127,9 @@ render_errors = "both"
 # Which HTML to read: "github" (what GitHub shows) or "all" (`<u>` and
 # `<center>` as well).
 html = "github"
+# What becomes of a tag that has no effect: "dim" shows it dim, "hide"
+# leaves it out.
+html_tags = "dim"
 
 # Diagrams in code blocks, such as Mermaid, and formulas; see Diagrams
 # below.
@@ -925,23 +928,35 @@ once.
 Markdown may hold HTML, and kiri reads the tags it knows: `<div>` and `<p>`
 that centre, `<center>`, `<details>` and `<summary>`, `<h1>` to `<h6>`,
 `<pre>`, `<img>`, `<picture>`, `<a>`, `<br>` and the tags of text such as
-`<b>`, `<kbd>` and `<u>`. Which of them it reads is the key `html` in the
-`[markdown]` table of the configuration file, with no flag and no
-environment variable:
+`<b>`, `<kbd>`, `<ins>` and `<strike>`. A `<span>` draws nothing of its own,
+so what is in it is read as if its tags were not there. Which of the tags
+kiri reads is the key `html` in the `[markdown]` table of the configuration
+file, with no flag and no environment variable:
 
 - `github`, the default, reads what GitHub shows of HTML. `<u>` and
   `<center>` are not among them.
 - `all` reads `<u>` (underlined) and `<center>` (centred) as well.
 
-At the level `github` the tags that GitHub would not show have no effect:
-`<center>Text</center>` is the text, and the two tags are shown dim, each
-on a line of its own, as the tags that kiri does not know are. A value that
-is not one of the two is an error, as for any other key:
-`unknown variant`, and the values it takes.
+A tag that has no effect is one outside the level (`<center>` at `github`),
+one that kiri does not know (`<video>`), and one that is broken: never
+closed, or an end tag that ends nothing. It is shown dim, in the muted
+colour, and what it holds is read as it would be without it:
+`<center>Text</center>` at `github` is the text, with its two tags dim, each
+on a line of its own. The key `html_tags` chooses what becomes of them:
+
+- `dim`, the default, shows them where they are.
+- `hide` leaves them out: the text is as it would be without the tags, and
+  a paragraph of nothing else goes with them.
+
+`hide` never hides source that kiri shows as written: a block that is not
+read yet, such as a `<table>`, a `<hr>`, a comment alone in its block and
+a `<script>`. A value that a key does not take is an error, as for any other
+key: `unknown variant`, with the values it takes.
 
 ```toml
 [markdown]
 html = "all"
+html_tags = "hide"
 ```
 
 ## Environment variables

@@ -11,7 +11,7 @@ use crate::frontend::sim::{Sim, fixed_theme, plain};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
-use crate::typeset::parse::HtmlLevel;
+use crate::typeset::parse::{HtmlLevel, HtmlTags};
 use crate::typeset::position::Pos;
 
 const STARRED: &str = "{\"a\": \"*b*\"}\n";
@@ -140,8 +140,20 @@ fn warnings_of(source: &str) -> Vec<Diagnostic> {
 /// The blocks that opening `source` as Markdown gives when the
 /// configuration file sets the HTML level to `html`.
 fn blocks_with(html: Option<HtmlLevel>, source: &str) -> Vec<crate::typeset::model::Block> {
+    blocks_in(
+        MarkdownFile {
+            html,
+            ..MarkdownFile::default()
+        },
+        source,
+    )
+}
+
+/// The blocks that opening `source` as Markdown gives with the `[markdown]`
+/// table `markdown` in the configuration file.
+fn blocks_in(markdown: MarkdownFile, source: &str) -> Vec<crate::typeset::model::Block> {
     let config = Config {
-        markdown: MarkdownFile { html },
+        markdown,
         ..Config::default()
     };
     let settings =
@@ -175,6 +187,33 @@ fn the_html_level_of_the_settings_decides_what_html_is_read() {
     );
     assert!(!underlined(&blocks_with(Some(HtmlLevel::Github), source)));
     assert!(underlined(&blocks_with(Some(HtmlLevel::All), source)));
+}
+
+#[test]
+fn the_html_tags_of_the_settings_decide_whether_tags_with_no_effect_show() {
+    use crate::typeset::model::{Block, Inline};
+    let source = "a <abbr>b</abbr> c\n\n</div>\n";
+    let shown = |html_tags| {
+        blocks_in(
+            MarkdownFile {
+                html_tags,
+                ..MarkdownFile::default()
+            },
+            source,
+        )
+    };
+    let dim = shown(None);
+    assert_eq!(dim, shown(Some(HtmlTags::Dim)), "the default is dim");
+    assert!(
+        matches!(dim.as_slice(), [Block::Paragraph(inlines), Block::Html(tag)]
+            if inlines.contains(&Inline::Html("<abbr>".into())) && tag.starts_with("</div>")),
+        "{dim:?}"
+    );
+    let hidden = shown(Some(HtmlTags::Hide));
+    assert!(
+        matches!(hidden.as_slice(), [Block::Paragraph(inlines)] if inlines == &[Inline::Text("a b c".into())]),
+        "{hidden:?}"
+    );
 }
 
 #[test]

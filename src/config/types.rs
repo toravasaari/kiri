@@ -18,7 +18,7 @@ use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 use crate::present::ledger::MEGABYTE;
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::typeset::inputs::{FrontMatterStyle, Headings, RenderErrors, TableRows};
-use crate::typeset::parse::HtmlLevel;
+use crate::typeset::parse::{HtmlLevel, HtmlTags};
 use crate::typeset::reading::ZOOM_RANGE;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
@@ -193,6 +193,11 @@ impl Named for HtmlLevel {
     const NAMES: &'static [&'static str] = &["github", "all"];
 }
 
+impl Named for HtmlTags {
+    const ALL: &'static [Self] = &[Self::Dim, Self::Hide];
+    const NAMES: &'static [&'static str] = &["dim", "hide"];
+}
+
 impl Named for Headings {
     const ALL: &'static [Self] = &[Self::Auto, Self::Sized, Self::Images, Self::Plain];
     const NAMES: &'static [&'static str] = &["auto", "sized", "images", "plain"];
@@ -343,6 +348,7 @@ named_values!(
     RenderErrors,
     Wide,
     HtmlLevel,
+    HtmlTags,
     crate::term::Mode,
 );
 
