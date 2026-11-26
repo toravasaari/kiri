@@ -8,9 +8,6 @@
 /// Why a row reads otherwise after the switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// A whole element with nothing to draw is transparent; a plain `<p>` is
-    /// a paragraph, and an empty one draws nothing.
-    P1,
     /// An element is read when its tags pair and what it holds is allowed in
     /// it; else its tags are dim and what it holds is read on its own.
     P2,
