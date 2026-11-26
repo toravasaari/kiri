@@ -267,6 +267,40 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
     // Shallower, nothing is unpaired.
     let tree = scripted(&format!("{}{}", "<div>".repeat(256), "</div>".repeat(256)));
     assert_eq!(unpaired(false)(&tree) + unpaired(true)(&tree), 0);
+    // A raw-text element past the cap: its tags are unpaired leaves, what it
+    // holds is still no tag, and the 256 elements below are ended by their
+    // own end tags.
+    let source = format!(
+        "{}<pre><div></pre>{}",
+        "<div>".repeat(256),
+        "</div>".repeat(256)
+    );
+    let tree = scripted(&source);
+    assert_eq!(unpaired(false)(&tree), 1);
+    assert_eq!(unpaired(true)(&tree), 1);
+    let kinds: Vec<_> = (tree.nodes.iter())
+        .filter(|node| !matches!(node.kind, NodeKind::Element(_)))
+        .map(|node| (&source[node.at.bytes.clone()], &node.kind))
+        .collect();
+    assert!(
+        matches!(
+            kinds.as_slice(),
+            [
+                ("<pre>", NodeKind::Unpaired { end: false }),
+                ("<div>", NodeKind::Text),
+                ("</pre>", NodeKind::Unpaired { end: true }),
+            ]
+        ),
+        "{kinds:?}"
+    );
+    assert_eq!(
+        count(&tree, |kind| matches!(kind, NodeKind::Element(_))),
+        256
+    );
+    assert!(tree.nodes.iter().all(|node| match &node.kind {
+        NodeKind::Element(open) => matches!(open.closing, Closing::End(_)),
+        _ => true,
+    }));
 }
 
 /// How the time to make the tree of `make(n)`, a script of lines, grows
