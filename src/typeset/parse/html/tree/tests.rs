@@ -322,6 +322,12 @@ fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
     )
 }
 
+// The nests of the growth tests below go deeper than `MAX_DEPTH`, and past
+// it every start tag is an unpaired leaf. The cap bounds any scan of the open
+// elements, so a scan per tag would not make these tests fail: they guard
+// against work over the whole list of nodes, such as moving nodes or reading
+// tokens again.
+
 #[test]
 fn elements_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
     // Plain `<div>`, each start tag and end tag its own HTML block, with a
@@ -344,7 +350,8 @@ fn elements_never_ended_then_stray_end_tags_are_read_in_linear_time() {
     assert!(growth_stray < 24.0, "stray end tags: {growth_stray}");
     // End tags of an element below others that are open, one of which has
     // its end tag to come: each end tag is the one too many, and is found
-    // without a look at the elements above its own.
+    // without a look at the elements above its own. (The cap would bound
+    // such a look too; see above.)
     let blocked = |n| {
         format!(
             "<center>\n<details>\n{}{}</details>\n",
