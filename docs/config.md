@@ -954,7 +954,7 @@ on a line of its own. The key `html_tags` chooses what becomes of them:
 
 `hide` never hides source that kiri shows as written: a block that is not
 read yet, such as a `<table>`, a `<hr>`, a comment alone in its block and
-a `<script>`. A value that a key does not take is an error, as for any other
+a `<script>` block. A value that a key does not take is an error, as for any other
 key: `unknown variant`, with the values it takes.
 
 ```toml
