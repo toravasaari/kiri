@@ -29,12 +29,12 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   image as one in Markdown. A tag with no effect at the level, one kiri does
   not know, or a broken one is drawn dim, or left out with
   `html_tags = "hide"`, and what it holds is read as it would be without it.
-  Front matter at the start of a Markdown file
-  is split off in `src/typeset/parse/front_matter.rs` before comrak
-  sees the text and read as YAML, TOML or JSON into the model's own value
-  tree; `--front-matter off` leaves it to comrak. A formula in `$$…$$`
-  becomes a code block in `math`, as a ` ```math ` block is, so that a
-  backend that cannot draw it shows its source.
+  Front matter at the start of a Markdown file is split off in
+  `src/typeset/parse/front_matter.rs` before comrak sees the text and read
+  as YAML, TOML or JSON into the model's own value tree;
+  `--front-matter off` leaves it to comrak. A formula in `$$…$$` becomes a
+  code block in `math`, as a ` ```math ` block is, so that a backend that
+  cannot draw it shows its source.
 - **Document model:** kiri's own tree of blocks and inline spans. It holds
   what the document means (heading level 2, emphasis, image with alt text),
   not how any terminal draws it. Other input formats only need a converter
@@ -555,9 +555,9 @@ Front matter is a table of its keys and values in the column, with a
 table in a cell for a value that has keys, or a code block when the
 front matter shows as code. A `<details>` block is its summary after a
 triangle and its blocks, each with a place of its own for the pager; raw
-HTML is its source, and a note of kiri's own is muted text. What is left
-as text between the pages, a file's header, a file's error message and an
-image file shown on its own, starts at the area's left edge and is as wide as the text's column:
+HTML that is not read is its source, and a note of kiri's own is muted
+text. What is left as text between the pages, a file's header, a file's
+error message and an image file shown on its own, starts at the area's left edge and is as wide as the text's column:
 only code blocks and tables reach into the area. A code
 block or table wider than the area wraps to fit it, or, with `--wide
 scroll` in the pager, or after `W` there, becomes a band on whole rows of
