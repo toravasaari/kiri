@@ -2511,6 +2511,13 @@ pub const HIDE_ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "an alert of nothing but hidden tags is left out with its title",
+        source: "> [!NOTE]\n> <abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @4=27..32
+        "#,
+    },
+    Row {
         name: "a quote keeps its text when its tags are hidden",
         source: "> a <abbr>b</abbr>\n",
         blocks: r#"
