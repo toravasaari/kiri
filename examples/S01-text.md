@@ -144,7 +144,8 @@ move on. A `<kbd>` looks like inline code.
 Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
 <em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
 <code>code</code> in running text look like their Markdown forms, and they
-nest, as in <b><i>bold italic</i></b>. These stay as source in the muted
+nest, as in <b><i>bold italic</i></b>. An <ins>inserted</ins> word is
+underlined, as a browser draws it. These stay as source in the muted
 colour: a tag that never closes, as in <b>this one, the tags of a `<code>`
 with other tags inside, as in <code>a <b>b</b></code>, and `<u>`:
 <u>underlined</u>.

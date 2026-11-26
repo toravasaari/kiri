@@ -2192,6 +2192,28 @@ pub const ROWS: &[Row] = &[
             p "a b c" @1=0..31
         "#,
     },
+    // `<ins>` is underlined, at both levels (GitHub's list has it).
+    Row {
+        name: "an ins in a paragraph is underlined",
+        source: "A <ins>b</ins> c\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..16
+        "#,
+    },
+    Row {
+        name: "an ins in an HTML block is underlined",
+        source: "<p>A <ins>b</ins> c</p>\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..23
+        "#,
+    },
+    Row {
+        name: "an ins never closed stays a dim tag in its text",
+        source: "A <ins>b\n",
+        blocks: r#"
+            p "A <ins>b" @1=0..8
+        "#,
+    },
     // The level: `<u>` is a phrase at "all" only (GitHub's level has the
     // same two rows in `GITHUB_ROWS`).
     Row {
@@ -2215,6 +2237,13 @@ pub const ROWS: &[Row] = &[
 /// own. The rows of `ROWS` that this list does not repeat read the same at
 /// both levels.
 pub const GITHUB_ROWS: &[Row] = &[
+    Row {
+        name: "an ins is underlined at GitHub's level too",
+        source: "A <ins>b</ins> c\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..16
+        "#,
+    },
     Row {
         name: "a span is read at GitHub's level too: transparent",
         source: "Text <span>bold</span> more\n",

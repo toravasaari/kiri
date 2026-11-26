@@ -209,7 +209,7 @@ impl Joined {
         }
         self.inlines.push(match phrase {
             Phrase::A | Phrase::Picture | Phrase::Span => unreachable!("made above"),
-            Phrase::U => Inline::Underline(content),
+            Phrase::U | Phrase::Ins => Inline::Underline(content),
             Phrase::Kbd => Inline::Kbd(content),
             Phrase::Mark => Inline::Mark(content),
             Phrase::Sub => Inline::Subscript(content),
