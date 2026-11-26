@@ -484,9 +484,8 @@ impl<'t> Reader<'t> {
                 }
                 None => self.as_written(node, open, round, out),
             },
-            // A `<summary>` that is not the summary of a `<details>` is left
-            // as source, as the elements that are source for now.
-            Treatment::Summary => self.as_written(node, open, round, out),
+            // The elements that are source for now, and a `<summary>` that
+            // is not the summary of a `<details>`.
             _ => self.as_written(node, open, round, out),
         }
     }
@@ -563,6 +562,14 @@ impl<'t> Reader<'t> {
             .rposition(|&node| !self.blank(node))
             .expect("one is not blank");
         let leaves = &leaves[first..=last];
+        // A run lies in one HTML block: `extend` ends it at the next.
+        let piece = self.tree.nodes[leaves[0]].at.piece;
+        debug_assert!(
+            (leaves.iter()).all(|&node| self.tree.nodes[node].at.piece == piece),
+            "a run in more than one HTML block"
+        );
+        let start = self.tree.nodes[leaves[0]].at.bytes.start;
+        let end = self.end_of(leaves[leaves.len() - 1]);
         let inlines = run_inlines(leaves.iter().filter_map(|&node| self.leaf(node)));
         let shows = inlines.iter().any(|inline| match inline {
             Inline::Html(_) => false,
@@ -577,39 +584,16 @@ impl<'t> Reader<'t> {
         });
         if !shows {
             // Comments beside other things in their HTML block show nothing,
-            // as in a browser; alone in it they are left as written.
-            let piece = self.tree.nodes[leaves[0]].at.piece;
-            let bytes =
-                self.tree.nodes[leaves[0]].at.bytes.start..self.end_of(leaves[leaves.len() - 1]);
-            if !tags && !self.block(piece).alone(&bytes) {
-                return;
-            }
-            // Tags and comments with nothing to show, as written, an HTML
-            // block's part each.
-            let mut from = 0;
-            while from < leaves.len() {
-                let piece = self.tree.nodes[leaves[from]].at.piece;
-                let to = from
-                    + leaves[from..]
-                        .iter()
-                        .take_while(|&&node| self.tree.nodes[node].at.piece == piece)
-                        .count();
-                let start = self.tree.nodes[leaves[from]].at.bytes.start;
-                let end = self.end_of(leaves[to - 1]);
+            // as in a browser; alone in it they are left as written, and so
+            // are tags with nothing to show.
+            if tags || self.block(piece).alone(&(start..end)) {
                 out.push(self.source(piece, start..end, round));
-                from = to;
             }
             return;
         }
         // The paragraph starts at its first word, not at the blank before it.
-        let at = &self.tree.nodes[leaves[0]].at;
-        let written = self.written(at);
-        let start = at.bytes.start + (written.len() - written.trim_ascii_start().len());
-        let piece = at.piece;
-        let end = match self.tree.nodes[leaves[leaves.len() - 1]].at.piece == piece {
-            true => self.end_of(leaves[leaves.len() - 1]),
-            false => self.block(piece).literal.len(),
-        };
+        let written = self.written(&self.tree.nodes[leaves[0]].at);
+        let start = start + (written.len() - written.trim_ascii_start().len());
         let position = self.place(piece, &self.widened(leaves, start..end), round);
         out.push((Block::Paragraph(inlines), position));
     }
