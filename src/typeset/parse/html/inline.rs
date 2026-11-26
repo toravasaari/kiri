@@ -202,8 +202,13 @@ impl Joined {
             return named_link(&mut self.inlines, start.ids, start.href, content);
         }
         self.forget_from(start.at);
+        // A `<span>` is transparent: what it holds takes its place.
+        if phrase == Phrase::Span {
+            self.inlines.extend(content);
+            return;
+        }
         self.inlines.push(match phrase {
-            Phrase::A | Phrase::Picture => unreachable!("made above"),
+            Phrase::A | Phrase::Picture | Phrase::Span => unreachable!("made above"),
             Phrase::U => Inline::Underline(content),
             Phrase::Kbd => Inline::Kbd(content),
             Phrase::Mark => Inline::Mark(content),

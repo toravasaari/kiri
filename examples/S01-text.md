@@ -124,8 +124,10 @@ echo ":rocket:"
 
 ## HTML tags
 
-A few HTML tags are drawn as GitHub shows them. Others, such as `<span>`,
-stay as source in a muted colour.
+A few HTML tags are drawn as GitHub shows them. Others, such as `<abbr>`,
+stay as source in a muted colour. A `<span>` draws nothing of its own, so
+what is in it is read as if its tags were not there: a <span>span, with
+**bold**</span> in a line.
 
 ### Line breaks
 

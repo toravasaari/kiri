@@ -364,10 +364,10 @@ fn reads_the_tags_of_a_kbd() {
     assert_eq!(phrase_start("<KBD title=\"key\">"), Some(Phrase::Kbd));
     assert_eq!(phrase_end("</kbd>"), Some(Phrase::Kbd));
     assert_eq!(phrase_end("</Kbd >"), Some(Phrase::Kbd));
-    for other in ["</kbd>", "<kbdx>", "<span>", "<kbd><kbd>", "<kbd"] {
+    for other in ["</kbd>", "<kbdx>", "<abbr>", "<kbd><kbd>", "<kbd"] {
         assert_eq!(phrase_start(other), None, "{other:?}");
     }
-    for other in ["<kbd>", "</kbdx>", "</span>", "</kbd></kbd>"] {
+    for other in ["<kbd>", "</kbdx>", "</abbr>", "</kbd></kbd>"] {
         assert_eq!(phrase_end(other), None, "{other:?}");
     }
 }

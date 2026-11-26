@@ -24,7 +24,7 @@ html "<p>\n" @56=782..785
 p "A plain paragraph with blank lines round its text." @58=787..837
 html "</p>\n" @60=839..843
 centred @62=845..914
-  p "<span>A span in a centred paragraph.</span>" @63~845..914
+  p "A span in a centred paragraph." @63~845..914
 p "<br>" @66=916..920
 p "Superscript([Text(\"A superscript alone in its block.\")])" @68=922..966
 centred @70=968..1032

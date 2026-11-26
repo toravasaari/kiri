@@ -100,6 +100,9 @@ pub enum Phrase {
     Del,
     Code,
     U,
+    /// `<span>`: it draws nothing of its own, so what it holds is read as if
+    /// its tags were not there.
+    Span,
     /// `<picture>`: what it holds, which is its `<img>`, without the
     /// `<source>` tags, which a terminal has no use for.
     Picture,
@@ -242,7 +245,7 @@ const fn raw(name: &'static str) -> Element {
 /// these, the rows are those that kiri reads, and the rest of the list is
 /// not here yet. The raw-text elements that CommonMark's HTML blocks end
 /// at, `<script>`, `<style>` and `<textarea>`, are rows too, at no level.
-pub static TABLE: [Element; 43] = [
+pub static TABLE: [Element; 44] = [
     Element {
         end_optional: true,
         ended_by: EndedBy::AnyBlock,
@@ -316,6 +319,7 @@ pub static TABLE: [Element; 43] = [
     phrase("del", Level::Github, Phrase::Del),
     phrase("code", Level::Github, Phrase::Code),
     phrase("u", Level::All, Phrase::U),
+    phrase("span", Level::Github, Phrase::Span),
     phrase("a", Level::Github, Phrase::A),
     row(
         "br",
@@ -446,7 +450,7 @@ mod tests {
             names(|row| matches!(row.treatment, Treatment::Phrase(_))),
             [
                 "kbd", "mark", "sub", "sup", "b", "strong", "i", "em", "s", "del", "code", "u",
-                "a", "picture"
+                "span", "a", "picture"
             ]
         );
         // The block elements left as source for now.

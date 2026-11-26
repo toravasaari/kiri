@@ -128,8 +128,9 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 ␛[0;1;34m␛]66;s=2;Other tags␛\␛[0m
 
 
-  Text with ␛[0;2m<span>␛[0ma span␛[0;2m</span>␛[0m and ␛[0;2m<abbr>␛[0man
-  abbreviation␛[0;2m</abbr>␛[0m stays as source.
+  Text with a span, which draws nothing of its
+  own, and ␛[0;2m<abbr>␛[0man abbreviation␛[0;2m</abbr>␛[0m, whose
+  tags stay as source.
 
   A div block stays as source.
 

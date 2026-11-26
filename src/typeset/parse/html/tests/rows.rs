@@ -188,14 +188,14 @@ pub const ROWS: &[Row] = &[
               html "<ul><li>x</li></ul>" @2~0..47
         "#,
     },
-    // P2, read by the tree: a centred div holds text with an unknown span,
-    // which it may: centred, the span tags dim.
+    // A centred div holds text with a span, which it may: centred, and the
+    // span transparent (before the row of `<span>`, its tags were dim).
     Row {
-        name: "a span in a one-block wrapper is text with its tags dim, centred",
+        name: "a span in a one-block wrapper is transparent, its text centred",
         source: "<div align=\"center\">\n<span>x</span>\n</div>\n",
         blocks: r#"
             centred @1=0..42
-              p "<span>x</span>" @2~0..42
+              p "x" @2~0..42
         "#,
     },
     // P2, read by the tree: a centred div holds a heading and a quote, which it
@@ -228,14 +228,14 @@ pub const ROWS: &[Row] = &[
               h1 "a <foo>b</foo>" @1~0..40
         "#,
     },
-    // P2, read by the tree: a centred heading may hold an unknown span: read
-    // and centred.
+    // A centred heading holds a span: read and centred, the span transparent
+    // (before the row of `<span>`, its tags were dim).
     Row {
         name: "a centred heading with a span is read and centred",
         source: "<h1 align=\"center\">a <span>b</span></h1>\n",
         blocks: r#"
             centred @1=0..40
-              h1 "a <span>b</span>" @1~0..40
+              h1 "a b" @1~0..40
         "#,
     },
     // P1, read by the tree: an empty centred div draws nothing.
@@ -1495,14 +1495,14 @@ pub const ROWS: &[Row] = &[
               html "</div>" @6~38..55
         "#,
     },
-    // P2, read by the tree: a details body may hold text with an unknown span:
-    // read, the span tags dim.
+    // P2, read by the tree: a details body may hold text with an unknown
+    // element: read, its tags dim.
     Row {
-        name: "a details body of text and an unknown span is a paragraph",
-        source: "<details><summary>s</summary><span>x</span> hello <b>bold</b></details>\n",
+        name: "a details body of text and an unknown abbr is a paragraph",
+        source: "<details><summary>s</summary><abbr>x</abbr> hello <b>bold</b></details>\n",
         blocks: r#"
             details "s" @1=0..71
-              p "<span>x</span> hello **bold**" @1~0..71
+              p "<abbr>x</abbr> hello **bold**" @1~0..71
         "#,
     },
     // P1, read by the tree: the plain p is a paragraph (and the details, not
@@ -2163,6 +2163,35 @@ pub const ROWS: &[Row] = &[
               p "![B](b.png)" @5=47..72
         "#,
     },
+    // `<span>` draws nothing of its own: transparent, as a plain `<div>`.
+    Row {
+        name: "a span in a paragraph is transparent: what it holds is read as it is",
+        source: "Text <span>**bold**</span> more\n",
+        blocks: r#"
+            p "Text **bold** more" @1=0..31
+        "#,
+    },
+    Row {
+        name: "a span in an HTML block is transparent",
+        source: "<p>A <span class=\"x\">b <i>c</i></span> d</p>\n",
+        blocks: r#"
+            p "A b *c* d" @1=0..44
+        "#,
+    },
+    Row {
+        name: "a span never closed stays a dim tag in its text",
+        source: "Text <span>bold\n",
+        blocks: r#"
+            p "Text <span>bold" @1=0..15
+        "#,
+    },
+    Row {
+        name: "a span in a span is transparent twice",
+        source: "<span>a <span>b</span> c</span>\n",
+        blocks: r#"
+            p "a b c" @1=0..31
+        "#,
+    },
     // The level: `<u>` is a phrase at "all" only (GitHub's level has the
     // same two rows in `GITHUB_ROWS`).
     Row {
@@ -2186,6 +2215,13 @@ pub const ROWS: &[Row] = &[
 /// own. The rows of `ROWS` that this list does not repeat read the same at
 /// both levels.
 pub const GITHUB_ROWS: &[Row] = &[
+    Row {
+        name: "a span is read at GitHub's level too: transparent",
+        source: "Text <span>bold</span> more\n",
+        blocks: r#"
+            p "Text bold more" @1=0..27
+        "#,
+    },
     Row {
         name: "center is no wrapper at GitHub's level: its tags are dim",
         source: "<center>Text</center>\n",

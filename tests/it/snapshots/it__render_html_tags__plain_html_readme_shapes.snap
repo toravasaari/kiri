@@ -44,7 +44,7 @@ expression: "render_for(\"html-readme-shapes.md\", Capabilities::plain(WIDTH))"
 
   </p>
 
-  <span>A span in a centred paragraph.</span>
+         A span in a centred paragraph.
 
 
 

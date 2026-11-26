@@ -187,12 +187,12 @@ fn keeps_other_html_as_source() {
     // `<p>Text <img src=a.png></p>` was here: it is a paragraph since the
     // tree of HTML (P1, a row of `html/tests/rows.rs`).
     assert_eq!(
-        parse("Text <span>bold</span>\n").blocks,
+        parse("Text <abbr>bold</abbr>\n").blocks,
         vec![Block::Paragraph(vec![
             text("Text "),
-            Inline::Html("<span>".into()),
+            Inline::Html("<abbr>".into()),
             text("bold"),
-            Inline::Html("</span>".into()),
+            Inline::Html("</abbr>".into()),
         ])]
     );
 }
