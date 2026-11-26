@@ -57,9 +57,20 @@ pub(super) fn runs_into(runs: &mut Vec<Run>, content: &[Inline], look: &Look, in
 fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mut Vec<Run>) {
     for inline in content {
         match inline {
-            Inline::Text(text) | Inline::Html(text) => {
+            Inline::Text(text) => {
                 push_from(runs, text, style, ink.took(text.len()));
             }
+            // A tag that has no effect is shown dim, in the colour of a
+            // quote's text, as the cell layout mutes it.
+            Inline::Html(tag) => push_from(
+                runs,
+                tag,
+                &Run {
+                    color: Some(look.quote),
+                    ..style.clone()
+                },
+                ink.took(tag.len()),
+            ),
             Inline::Code(code) => push_from(
                 runs,
                 code,
