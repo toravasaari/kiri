@@ -17,15 +17,19 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
 ```
 
 - **Parse:** [comrak](https://crates.io/crates/comrak) turns the source into
-  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads a few
-  HTML tags in it itself: `<img>`, so an image means the same in the model
-  whether Markdown or HTML wrote it, and `<details>`, `<summary>`, `<kbd>`,
-  `<mark>`, `<sub>`, `<sup>`, `<br>`, `<h1>` to `<h6>`, `<pre>`, and `<p>`,
-  `<div>` and `<center>` round blocks, and `<b>`, `<strong>`, `<i>`, `<em>`,
-  `<s>`, `<del>` and `<code>` in running text. The HTML blocks of a
-  container and the Markdown blocks between them are read as one tree, so
-  an element is read whole whatever blank lines cut it
-  (`src/typeset/parse/html/`). Front matter at the start of a Markdown file
+  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads the HTML
+  in it itself, in `src/typeset/parse/html/`: the tags of each HTML block
+  become tokens (`html.rs`), and the tokens and the Markdown blocks between
+  them make one tree of block elements (`tree.rs`), so an element is read
+  whole whatever blank lines cut it. `blocks.rs` turns that tree into blocks
+  of the model, and `inline.rs` joins the tags of running text into inlines.
+  Both decide by the table of elements (`elements.rs`, one row for each
+  element) and by the setting `html`: GitHub's level, the default, or `all`,
+  which also reads `<u>` and `<center>`. An `<img>` in HTML is the same
+  image as one in Markdown. A tag with no effect at the level, one kiri does
+  not know, or a broken one is drawn dim, or left out with
+  `html_tags = "hide"`, and what it holds is read as it would be without it.
+  Front matter at the start of a Markdown file
   is split off in `src/typeset/parse/front_matter.rs` before comrak
   sees the text and read as YAML, TOML or JSON into the model's own value
   tree; `--front-matter off` leaves it to comrak. A formula in `$$…$$`
