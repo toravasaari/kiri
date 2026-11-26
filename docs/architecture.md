@@ -551,31 +551,29 @@ it is shown as its source, as the other layouts show it. An alert is a
 tint, a bar, a title after the kind's icon, which is drawn from an
 embedded Octicon outline (`src/typeset/reading/octicons.rs`), and the
 blocks inside it in the room left.
-Front matter is a table of its keys and values in the column, with a
-table in a cell for a value that has keys, or a code block when the
-front matter shows as code. A `<details>` block is its summary after a
-triangle and its blocks, each with a place of its own for the pager; raw
-HTML that is not read is its source, and a note of kiri's own is muted
-text. What is left as text between the pages, a file's header, a file's
-error message and an image file shown on its own, starts at the area's left edge and is as wide as the text's column:
-only code blocks and tables reach into the area. A code
-block or table wider than the area wraps to fit it, or, with `--wide
-scroll` in the pager, or after `W` there, becomes a band on whole rows of
-its own, which keeps its lines and words whole and scrolls sideways under
-a thin scroll bar, faded on each edge with more beyond it; a code band's
-language stays in its top right corner. Its rows show an image of their
-own, cut into slices of at most 30 rows as pages are, keyed by its slice,
-its offset and whether it is selected. The pager keeps those by the
-band's block, which the layout's map gives, in `src/session/bands.rs`:
-the topmost band on the screen is selected until a click, or a search
-that finds something in another,
-selects it, ← and → or `H`
-and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
-over a band, and the pager then shows the same lines with the band's rows
-keyed anew, without laying the document out again. Where the terminal
-draws no images, kiri warns and shows the text as usual. In the pager,
-`M` turns reading mode on and off and lays the document out again,
-keeping the block at the top as a resize does.
+Front matter is a table of its keys and values in the column, with a table in a
+cell for a value that has keys, or a code block when the front matter shows as
+code. A `<details>` block is its summary after a triangle and its blocks, each
+with a place of its own for the pager; raw HTML that is not read is its source,
+and a note of kiri's own is muted text. What is left as text between the pages,
+a file's header, a file's error message and an image file shown on its own,
+starts at the area's left edge and is as wide as the text's column: only code
+blocks and tables reach into the area. A code block or table wider than the
+area wraps to fit it, or, with `--wide scroll` in the pager, or after `W`
+there, becomes a band on whole rows of its own, which keeps its lines and words
+whole and scrolls sideways under a thin scroll bar, faded on each edge with
+more beyond it; a code band's language stays in its top right corner. Its rows
+show an image of their own, cut into slices of at most 30 rows as pages are,
+keyed by its slice, its offset and whether it is selected. The pager keeps
+those by the band's block, which the layout's map gives, in
+`src/session/bands.rs`: the topmost band on the screen is selected until a
+click, or a search that finds something in another, selects it, ← and → or `H`
+and `L` scroll it, and so does a sideways wheel, or the wheel with Shift, over
+a band, and the pager then shows the same lines with the band's rows keyed
+anew, without laying the document out again. Where the terminal draws no
+images, kiri warns and shows the text as usual. In the pager, `M` turns reading
+mode on and off and lays the document out again, keeping the block at the top
+as a resize does.
 
 A page is drawn opaque when the theme gives it a background whose colour
 is known. Then all of its text is blended by kiri over the same ground,
