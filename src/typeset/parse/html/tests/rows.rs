@@ -411,15 +411,17 @@ pub const ROWS: &[Row] = &[
     },
     // Blank lines inside the wrapper: a block for each of its tags and the
     // blocks between them.
+    // P4, read by the tree: A Markdown block ends the centred p: its tags are dim and nothing is centred.
     Row {
-        name: "a centred p that blank lines split is one centred block",
+        name: "a centred p that blank lines split is not centred: a Markdown block ends it",
         source: "<p align=\"center\">\n\nSome *text*.\n\n- an item\n\n</p>\n\nAfter.\n",
         blocks: r#"
-            centred @1=0..49
-              p "Some *text*." @3=20..32
-              list @5=34..43
-                item
-                  p "an item" @5=36..43
+            html "<p align=\"center\">\n" @1=0..18
+            p "Some *text*." @3=20..32
+            list @5=34..43
+              item
+                p "an item" @5=36..43
+            html "</p>\n" @7=45..49
             p "After." @9=51..57
         "#,
     },
@@ -459,14 +461,16 @@ pub const ROWS: &[Row] = &[
             p "After." @9=53..59
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tags are dim and nothing is centred.
     Row {
-        name: "a split wrapper holds an image and headings of html and markdown",
+        name: "a centred p that Markdown and HTML headings cut is dim tags and the blocks",
         source: "<p align=\"center\">\n\n# Title\n\n<img src=\"a.png\" alt=\"A\">\n\n<h2>Sub</h2>\n\n</p>\n",
         blocks: r#"
-            centred @1=0..74
-              h1 "Title" @3=20..27
-              p "![A](a.png)" @5=29..54
-              h2 "Sub" @7=56..68
+            html "<p align=\"center\">\n" @1=0..18
+            h1 "Title" @3=20..27
+            p "![A](a.png)" @5=29..54
+            h2 "Sub" @7=56..68
+            html "</p>\n" @9=70..74
         "#,
     },
     Row {
@@ -480,13 +484,15 @@ pub const ROWS: &[Row] = &[
             p "After." @11=59..65
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tags are dim and nothing is centred.
     Row {
-        name: "a split wrapper in a quote",
+        name: "a centred p that blank lines split, in a quote, is not centred",
         source: "> <p align=\"center\">\n>\n> x\n>\n> </p>\n",
         blocks: r#"
             quote @1=0..35
-              centred @1=2..35
-                p "x" @3=25..26
+              html "<p align=\"center\">\n" @1=2..20
+              p "x" @3=25..26
+              html "</p>\n" @5=31..35
         "#,
     },
     Row {
@@ -510,13 +516,15 @@ pub const ROWS: &[Row] = &[
               p "Back." @11=54..59
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tags are dim and nothing is centred.
     Row {
-        name: "a wrapper nests in a details",
+        name: "a centred p that blank lines split, in a details, is not centred",
         source: "<details>\n<summary>S</summary>\n\n<p align=\"center\">\n\nIn.\n\n</p>\n\n</details>\n",
         blocks: r#"
             details "S" @1=0..73
-              centred @4=32..61
-                p "In." @6=52..55
+              html "<p align=\"center\">\n" @4=32..50
+              p "In." @6=52..55
+              html "</p>\n" @8=57..61
         "#,
     },
     Row {
@@ -557,14 +565,16 @@ pub const ROWS: &[Row] = &[
             p "Out." @5=32..36
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its end tag is a stray, dim.
     Row {
-        name: "a div end tag while a centred p is open stays source",
+        name: "a div end tag after Markdown in a centred p is a stray, dim",
         source: "<p align=\"center\">\n\nA\n\n</div>\n\nB\n\n</p>\n",
         blocks: r#"
-            centred @1=0..38
-              p "A" @3=20..21
-              html "</div>\n" @5=23..29
-              p "B" @7=31..32
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
+            html "</div>\n" @5=23..29
+            p "B" @7=31..32
+            html "</p>\n" @9=34..38
         "#,
     },
     Row {
@@ -634,14 +644,16 @@ pub const ROWS: &[Row] = &[
               p "B" @10=46..47
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its end tag is a stray, dim.
     Row {
         name: "a stray end tag that starts a block is cut off the text after it",
         source: "<p align=\"center\">\n\nA\n\n</div>\nAfter.\n\n</p>\n",
         blocks: r#"
-            centred @1=0..42
-              p "A" @3=20..21
-              html "</div>" @5~23..36
-              p "After." @6~23..36
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
+            html "</div>" @5~23..36
+            p "After." @6~23..36
+            html "</p>\n" @8=38..42
         "#,
     },
     Row {
@@ -775,13 +787,14 @@ pub const ROWS: &[Row] = &[
             p "A" @3=7..8
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p in the details: its tag is dim.
     Row {
-        name: "a details end tag ends a centred p in the details",
+        name: "a details end tag after Markdown in a centred p in the details",
         source: "<details><summary>S</summary>\n\n<p align=\"center\">\n\ncentred text\n\n</details>\n\nafter\n",
         blocks: r#"
             details "S" @1=0..75
-              centred @3=31..63
-                p "centred text" @5=51..63
+              html "<p align=\"center\">\n" @3=31..49
+              p "centred text" @5=51..63
             p "after" @9=77..82
         "#,
     },
@@ -946,14 +959,16 @@ pub const ROWS: &[Row] = &[
             p "after" @11=51..56
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tags are dim and nothing is centred.
     Row {
         name: "the start of a centred p ends a plain p",
         source: "<p>\n\nplain text\n\n<p align=\"center\">\n\ncentred text\n\n</p>\n\nafter\n",
         blocks: r#"
             html "<p>\n" @1=0..3
             p "plain text" @3=5..15
-            centred @5=17..55
-              p "centred text" @7=37..49
+            html "<p align=\"center\">\n" @5=17..35
+            p "centred text" @7=37..49
+            html "</p>\n" @9=51..55
             p "after" @11=57..62
         "#,
     },
@@ -1731,12 +1746,14 @@ pub const ROWS: &[Row] = &[
               p "A" @3=22..23
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its end tag is a stray, dim.
     Row {
         name: "a leading end tag in upper case with a blank, text after it",
         source: "<p align=\"center\">\n\nA\n\n</P >\ntext\n",
         blocks: r#"
-            centred @1=0..28
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
+            html "</P >" @5~23..33
             p "text" @6~23..33
         "#,
     },
@@ -1794,53 +1811,59 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     // A centred `<p>` that another tag ends without its end tag.
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a centred div start while a centred p is open",
+        name: "a centred div after a Markdown block in a centred p is centred on its own",
         source: "<p align=\"center\">\n\nA\n\n<div align=\"center\">\n\nB\n\n</div>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             centred @5=23..54
               p "B" @7=45..46
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a center start while a centred p is open",
+        name: "a center after a Markdown block in a centred p is centred on its own",
         source: "<p align=\"center\">\n\nA\n\n<center>\n\nB\n\n</center>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             centred @5=23..45
               p "B" @7=33..34
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a centred p start while a centred p is open",
+        name: "a centred p after a Markdown block in a centred p is dim tags and its text",
         source: "<p align=\"center\">\n\nA\n\n<p align=\"center\">\n\nB\n\n</p>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
-            centred @5=23..50
-              p "B" @7=43..44
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
+            html "<p align=\"center\">\n" @5=23..41
+            p "B" @7=43..44
+            html "</p>\n" @9=46..50
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a plain p start while a centred p is open",
+        name: "a plain p after a Markdown block in a centred p is dim tags and its text",
         source: "<p align=\"center\">\n\nA\n\n<p>\n\nB\n\n</p>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             html "<p>\n" @5=23..26
             p "B" @7=28..29
             html "</p>\n" @9=31..35
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a one-block centred p ends an open centred p",
+        name: "a one-block centred p after a Markdown block in a centred p is centred on its own",
         source: "<p align=\"center\">\n\nA\n\n<p align=\"center\">B</p>\n\nC\n\n</p>\n\nD\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             centred @5=23..46
               p "B" @5~23..46
             p "C" @7=48..49
@@ -1848,77 +1871,86 @@ pub const ROWS: &[Row] = &[
             p "D" @11=57..58
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a one-block centred div ends an open centred p",
+        name: "a one-block centred div after a Markdown block in a centred p is centred on its own",
         source: "<p align=\"center\">\n\nA\n\n<div align=\"center\">B</div>\n\nC\n\n</p>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             centred @5=23..50
               p "B" @5~23..50
             p "C" @7=52..53
             html "</p>\n" @9=55..59
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a one-block center ends an open centred p",
+        name: "a one-block center after a Markdown block in a centred p is centred on its own",
         source: "<p align=\"center\">\n\nA\n\n<center>B</center>\n\nC\n\n</p>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             centred @5=23..41
               p "B" @5~23..41
             p "C" @7=43..44
             html "</p>\n" @9=46..50
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a centred heading in an open centred p ends nothing",
+        name: "a centred heading after a Markdown block in a centred p is centred on its own",
         source: "<p align=\"center\">\n\nA\n\n<h1 align=\"center\">T</h1>\n\nC\n\n</p>\n",
         blocks: r#"
-            centred @1=0..57
-              p "A" @3=20..21
-              centred @5=23..48
-                h1 "T" @5~23..48
-              p "C" @7=50..51
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
+            centred @5=23..48
+              h1 "T" @5~23..48
+            p "C" @7=50..51
+            html "</p>\n" @9=53..57
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "an image in an open centred p ends nothing",
+        name: "an image after a Markdown block in a centred p is not centred",
         source: "<p align=\"center\">\n\nA\n\n<img src=\"a.png\">\n\nC\n\n</p>\n",
         blocks: r#"
-            centred @1=0..49
-              p "A" @3=20..21
-              p "![](a.png)" @5=23..40
-              p "C" @7=42..43
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
+            p "![](a.png)" @5=23..40
+            p "C" @7=42..43
+            html "</p>\n" @9=45..49
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a details start while a centred p is open",
+        name: "a details after a Markdown block in a centred p is read on its own",
         source: "<p align=\"center\">\n\nA\n\n<details>\n\nB\n\n</details>\n",
         blocks: r#"
-            centred @1=0..21
-              p "A" @3=20..21
+            html "<p align=\"center\">\n" @1=0..18
+            p "A" @3=20..21
             details "Details" @5=23..47
               p "B" @7=34..35
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a div end while a centred p is open in it",
+        name: "a centred p in a div, cut by a Markdown block, is dim tags and the div ends it",
         source: "<div align=\"center\">\n\n<p align=\"center\">\n\nA\n\n</div>\n",
         blocks: r#"
             centred @1=0..51
-              centred @3=22..43
-                p "A" @5=42..43
+              html "<p align=\"center\">\n" @3=22..40
+              p "A" @5=42..43
         "#,
     },
+    // P4, read by the tree: A Markdown block ends the centred p: its tag is dim and nothing is centred.
     Row {
-        name: "a center end while a centred p is open in it",
+        name: "a centred p in a center, cut by a Markdown block, is dim tags and the center ends it",
         source: "<center>\n\n<p align=\"center\">\n\nA\n\n</center>\n",
         blocks: r#"
             centred @1=0..42
-              centred @3=10..31
-                p "A" @5=30..31
+              html "<p align=\"center\">\n" @3=10..28
+              p "A" @5=30..31
         "#,
     },
     Row {
@@ -2060,6 +2092,16 @@ pub const ROWS: &[Row] = &[
         blocks: r#"
             html "<pre>" @1~0..6
             p "x" @1~0..6
+        "#,
+    },
+    // P4 keeps B2 for the HTML lines of a `<p>`: an image line cut off by blank lines stays in the centred p, as GitHub draws it.
+    Row {
+        name: "an image line in a centred p that blank lines split is centred",
+        source: "<p align=\"center\">\n\n<img src=\"a.png\" alt=\"A\">\n\n<img src=\"b.png\" alt=\"B\">\n\n</p>\n",
+        blocks: r#"
+            centred @1=0..78
+              p "![A](a.png)" @3=20..45
+              p "![B](b.png)" @5=47..72
         "#,
     },
 ];
