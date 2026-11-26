@@ -4,7 +4,7 @@
 
 use std::fmt::Write;
 
-use super::{pending, rows};
+use super::rows;
 use crate::typeset::model::{Document, Extent};
 use crate::typeset::parse::*;
 
@@ -16,12 +16,10 @@ pub struct Row {
     pub blocks: &'static str,
 }
 
-/// Every row reads as its blocks, but for the rows that a decision of the
-/// switch to the tree changes, which `PENDING_5B` holds.
+/// Every row reads as its blocks.
 #[test]
 fn every_row_of_the_table_reads_as_its_blocks() {
     let differ: Vec<String> = (rows::ROWS.iter())
-        .filter(|row| pending::get(row.name).is_none())
         .filter_map(|row| {
             let (expected, found) = (dedent(row.blocks), outline(row.source));
             (found != expected).then(|| {
@@ -39,45 +37,12 @@ fn every_row_of_the_table_reads_as_its_blocks() {
         rows::ROWS.len(),
         differ.join("\n")
     );
-}
-
-/// Every row that a decision of the switch changes reads as its new blocks,
-/// and its old blocks are those of its row in the table, if it has one.
-#[test]
-fn every_pending_row_reads_as_its_new_blocks() {
-    let mut differ = Vec::new();
-    for pending in pending::PENDING_5B {
-        let found = outline(pending.source);
-        if found != dedent(pending.new) {
-            differ.push(format!(
-                "{} ({:?}: {})\n{:?}\nexpected:\n{}found:\n{found}",
-                pending.name,
-                pending.decision,
-                pending.why,
-                pending.source,
-                dedent(pending.new)
-            ));
-        }
-        if let Some(row) = rows::ROWS.iter().find(|row| row.name == pending.name) {
-            assert_eq!(row.source, pending.source, "{}", pending.name);
-            assert_eq!(dedent(row.blocks), dedent(pending.old), "{}", pending.name);
-        }
-    }
-    assert!(
-        differ.is_empty(),
-        "{} of {} pending rows differ:\n\n{}",
-        differ.len(),
-        pending::PENDING_5B.len(),
-        differ.join("\n")
-    );
     // Each name once.
-    for (at, pending) in pending::PENDING_5B.iter().enumerate() {
+    for (at, row) in rows::ROWS.iter().enumerate() {
         assert!(
-            pending::PENDING_5B[..at]
-                .iter()
-                .all(|other| other.name != pending.name),
+            rows::ROWS[..at].iter().all(|other| other.name != row.name),
             "{} twice",
-            pending.name
+            row.name
         );
     }
 }

@@ -1,4 +1,4 @@
-//! The table of the joiner: documents and the blocks `parse` reads from
+//! The table of the reading of HTML: documents and the blocks `parse` reads from
 //! them, as `outline` writes them.
 
 use super::table::Row;
@@ -1398,12 +1398,13 @@ pub const ROWS: &[Row] = &[
               p "Text." @4=22..27
         "#,
     },
+    // K6, read by the tree: A summary counts wherever it is in the details, as in a browser, not only first in its block.
     Row {
-        name: "a summary with more after it in its block is no summary",
+        name: "a summary with more after it in its block is the summary",
         source: "<details>\n\n<summary>S</summary>more\n\nText.\n\n</details>\n",
         blocks: r#"
-            details "Details" @1=0..54
-              html "<summary>S</summary>more\n" @3=11..35
+            details "S" @1=0..54
+              p "more" @3~11..35
               p "Text." @5=37..42
         "#,
     },

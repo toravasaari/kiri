@@ -185,7 +185,7 @@ fn an_img_keeps_its_width_and_height() {
 #[test]
 fn keeps_other_html_as_source() {
     // `<p>Text <img src=a.png></p>` was here: it is a paragraph since the
-    // tree of HTML (P1, in `html/tests/pending.rs`).
+    // tree of HTML (P1, a row of `html/tests/rows.rs`).
     assert_eq!(
         parse("Text <span>bold</span>\n").blocks,
         vec![Block::Paragraph(vec![
@@ -539,7 +539,7 @@ fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
 #[test]
 fn keeps_other_html_around_a_heading_as_source() {
     // The other cases that were here read otherwise since the tree of HTML:
-    // those of P1 and P2 are in `html/tests/pending.rs`, and those that
+    // those of P1 and P2 are rows of `html/tests/rows.rs`, and those that
     // HTML after the heading in its block changes (K5) in
     // `the_html_after_a_heading_or_a_pre_in_its_block_is_read_after_it`.
     let html = "<h2 title=\"open>a</h2>\n";
@@ -668,7 +668,7 @@ fn an_html_pre_keeps_its_line() {
 #[test]
 fn keeps_other_html_around_a_pre_as_source() {
     // The cases with HTML after the `</pre>` in its block (K5) and a `<pre>`
-    // never closed (P2, in `html/tests/pending.rs`) read otherwise since the
+    // never closed (P2, a row of `html/tests/rows.rs`) read otherwise since the
     // tree of HTML.
     for html in [
         "<pre><span>x</span></pre>\n",
@@ -734,7 +734,7 @@ fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
         }]
     );
     // `<p>a <pre>x</pre></p>` in a details was source here; it is read since
-    // the tree of HTML (P1, in `html/tests/pending.rs`).
+    // the tree of HTML (P1, a row of `html/tests/rows.rs`).
 }
 
 /// HTML after the end tag of a heading or a `<pre>` in its block is read
