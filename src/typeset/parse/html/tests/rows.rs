@@ -2435,6 +2435,29 @@ pub const HIDE_ROWS: &[Row] = &[
         source: "<abbr><abbr>\n",
         blocks: "",
     },
+    // A block is left out when nothing in it draws anything: line breaks,
+    // and emphasis or a link with nothing in it, are not drawing.
+    Row {
+        name: "a paragraph of hidden tags and a line break is left out",
+        source: "<abbr></abbr>\n<abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @4=29..34
+        "#,
+    },
+    Row {
+        name: "a paragraph of emphasis with nothing in it is left out",
+        source: "**<abbr></abbr>**\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=19..24
+        "#,
+    },
+    Row {
+        name: "a paragraph of a link with nothing in it is left out",
+        source: "[<abbr></abbr>](u)\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=20..25
+        "#,
+    },
     // What hiding empties goes with it, if it held something: a heading, a
     // list item, a quote. A cell stays a cell, and what was empty as written
     // stays.

@@ -396,7 +396,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     let block = match &node.data().value {
         NodeValue::Heading(heading) => {
             let content = inlines(node, unknown);
-            if emptied(node, content.is_empty(), unknown) {
+            if emptied(node, draws_nothing(&content), unknown) {
                 return None;
             }
             Block::Heading {
@@ -407,7 +407,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
         NodeValue::Paragraph => {
             let content = inlines(node, unknown);
-            if emptied(node, content.is_empty(), unknown) {
+            if emptied(node, draws_nothing(&content), unknown) {
                 return None;
             }
             Block::Paragraph(content)
@@ -478,6 +478,26 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
 /// held something as written. What was empty as written stays.
 fn emptied(node: Node<'_>, empty: bool, unknown: &Unknown) -> bool {
     empty && unknown.html_tags == HtmlTags::Hide && node.first_child().is_some()
+}
+
+/// Whether `content` draws nothing: it is empty, or only line breaks, and
+/// emphasis or a link with nothing in them, as hiding the tags of a paragraph
+/// can leave it.
+fn draws_nothing(content: &[Inline]) -> bool {
+    content.iter().all(|inline| match inline {
+        Inline::SoftBreak | Inline::LineBreak => true,
+        Inline::Text(text) => text.is_empty(),
+        Inline::Emphasis(inner)
+        | Inline::Strong(inner)
+        | Inline::Strikethrough(inner)
+        | Inline::Kbd(inner)
+        | Inline::Mark(inner)
+        | Inline::Subscript(inner)
+        | Inline::Superscript(inner)
+        | Inline::Underline(inner)
+        | Inline::Link { content: inner, .. } => draws_nothing(inner),
+        _ => false,
+    })
 }
 
 /// An item of a list, or `None` when hiding the tags left it with nothing.
