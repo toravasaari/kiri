@@ -123,6 +123,10 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   <details>
 
-  <summary>Never closed</summary>
+  <summary>
+
+  Never closed
+
+  </summary>
 
   Runs to the end of the document.

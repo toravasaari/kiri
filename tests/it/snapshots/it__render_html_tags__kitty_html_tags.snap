@@ -136,6 +136,10 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
   ␛[0;2m<details>␛[0m
 
-  ␛[0;2m<summary>Never closed</summary>␛[0m
+  ␛[0;2m<summary>␛[0m
+
+  Never closed
+
+  ␛[0;2m</summary>␛[0m
 
   Runs to the end of the document.

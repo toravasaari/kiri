@@ -1156,7 +1156,9 @@ pub const ROWS: &[Row] = &[
         blocks: r#"
             quote @1=0..55
               html "<details>" @1~2..47
-              html "<summary>S</summary>" @2~2..47
+              html "<summary>" @2~2..47
+              p "S" @2~2..47
+              html "</summary>" @2~2..47
               p "More text." @3~2..47
               p "In." @5=52..55
             p "Out." @7=57..61
@@ -1280,7 +1282,9 @@ pub const ROWS: &[Row] = &[
         source: "<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n",
         blocks: r#"
             html "<details>" @1~0..30
-            html "<summary>S</summary>\n" @2~0..30
+            html "<summary>" @2~0..30
+            p "S" @2~0..30
+            html "</summary>\n" @2~0..30
             p "first" @4=32..37
             p "second" @6=39..45
         "#,
@@ -1291,7 +1295,9 @@ pub const ROWS: &[Row] = &[
         source: "<details>\n<summary>S</summary>\n",
         blocks: r#"
             html "<details>" @1~0..30
-            html "<summary>S</summary>\n" @2~0..30
+            html "<summary>" @2~0..30
+            p "S" @2~0..30
+            html "</summary>\n" @2~0..30
         "#,
     },
     Row {
@@ -1393,28 +1399,34 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a summary outside a details stays source",
+        name: "a summary outside a details has no effect: dim tags, its text a paragraph",
         source: "<summary>S</summary>\n\nText.\n",
         blocks: r#"
-            html "<summary>S</summary>\n" @1=0..20
+            html "<summary>" @1~0..20
+            p "S" @1~0..20
+            html "</summary>\n" @1~0..20
             p "Text." @3=22..27
         "#,
     },
     Row {
-        name: "a second summary stays source",
+        name: "a second summary has no effect: dim tags, its text a paragraph",
         source: "<details>\n<summary>A</summary>\n\n<summary>B</summary>\n\nText.\n\n</details>\n",
         blocks: r#"
             details "A" @1=0..71
-              html "<summary>B</summary>\n" @4=32..52
+              html "<summary>" @4~32..52
+              p "B" @4~32..52
+              html "</summary>\n" @4~32..52
               p "Text." @6=54..59
         "#,
     },
     Row {
-        name: "a summary after a first one set apart stays source",
+        name: "a summary after a first one set apart has no effect: dim tags, its text a paragraph",
         source: "<details>\n\n<summary>A</summary>\n\n<summary>B</summary>\n\n</details>\n",
         blocks: r#"
             details "A" @1=0..65
-              html "<summary>B</summary>\n" @5=33..53
+              html "<summary>" @5~33..53
+              p "B" @5~33..53
+              html "</summary>\n" @5~33..53
         "#,
     },
     // P2, read by the tree: a summary never closed is broken: its tag is dim,
@@ -2239,6 +2251,17 @@ pub const ROWS: &[Row] = &[
               html "<span>" @1~0..55
         "#,
     },
+    // A summary outside a details has no effect: its tags are dim and its
+    // text is read on its own.
+    Row {
+        name: "a summary outside a details is a tag with no effect: dim tags, its text a paragraph",
+        source: "<summary>S</summary>\n",
+        blocks: r#"
+            html "<summary>" @1~0..20
+            p "S" @1~0..20
+            html "</summary>\n" @1~0..20
+        "#,
+    },
     // The level: `<u>` is a phrase at "all" only (GitHub's level has the
     // same two rows in `GITHUB_ROWS`).
     Row {
@@ -2452,6 +2475,13 @@ pub const HIDE_ROWS: &[Row] = &[
         source: "a <!-- c -->b\n",
         blocks: r#"
             p "a b" @1=0..13
+        "#,
+    },
+    Row {
+        name: "a loose summary is a tag with no effect: hidden, its text read on its own",
+        source: "<summary>S</summary>\n",
+        blocks: r#"
+            p "S" @1~0..20
         "#,
     },
     Row {

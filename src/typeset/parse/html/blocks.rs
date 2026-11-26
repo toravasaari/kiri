@@ -502,8 +502,10 @@ impl<'t> Reader<'t> {
                 }
                 None => self.as_written(node, open, round, out),
             },
-            // The elements that are source for now, and a `<summary>` that
-            // is not the summary of a `<details>`.
+            // A `<summary>` that is not the summary of a `<details>` has no
+            // effect: its tags are dim and its text is read on its own.
+            Treatment::Summary => self.dissolve(node, open, round, out),
+            // The elements that are source for now.
             _ => self.as_written(node, open, round, out),
         }
     }
