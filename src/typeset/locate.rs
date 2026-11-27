@@ -882,21 +882,28 @@ impl Map {
     pub fn link_hit(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
         let laid = lines.get(line)?;
         let columns = column.checked_sub(wrap::width(&laid.lead))?;
-        let parts = laid.image.as_ref().and_then(|image| image.page.as_ref());
-        let (Some(image), Some(parts)) = (laid.image.as_ref(), parts) else {
+        let Some((parts, row, offset)) = self.page_row(laid, line) else {
             return self.hit(lines, line, column);
         };
-        let page = self.pages.iter().find(|page| page.rows.contains(&line))?;
-        let offset = match image.placement.key {
-            ImageKey::Band { offset, .. } => offset,
-            _ => 0,
-        };
-        let row = u16::try_from(line - page.rows.start).ok()?;
         let found = parts.link_in_cell(u16::try_from(columns).ok()?, row, offset);
         match found {
             Some(found) => Some(self.found_pos(found)),
             None => self.hit(lines, line, column),
         }
+    }
+
+    /// For a line `line`, `laid`, that is a row of a reading page: the page's
+    /// parts, the row's number in the page and how far its band is scrolled
+    /// (0 outside a band). `None` for any other line.
+    fn page_row<'a>(&self, laid: &'a Line, line: usize) -> Option<(&'a Rc<Parts>, u16, u32)> {
+        let image = laid.image.as_ref()?;
+        let parts = image.page.as_ref()?;
+        let page = self.pages.iter().find(|page| page.rows.contains(&line))?;
+        let offset = match image.placement.key {
+            ImageKey::Band { offset, .. } => offset,
+            _ => 0,
+        };
+        Some((parts, u16::try_from(line - page.rows.start).ok()?, offset))
     }
 
     /// The place of what a page found.
@@ -918,15 +925,10 @@ impl Map {
         };
         let columns = column.checked_sub(wrap::width(&laid.lead))?;
         if let Some(image) = &laid.image {
-            if let Some(parts) = &image.page {
-                let page = self.pages.iter().find(|page| page.rows.contains(&line))?;
+            if let Some((parts, row, offset)) = self.page_row(laid, line) {
                 let (width, height) = parts.cells().1;
                 let x = (columns as f32 + 0.5) * f32::from(width);
-                let y = ((line - page.rows.start) as f32 + 0.5) * f32::from(height);
-                let offset = match image.placement.key {
-                    ImageKey::Band { offset, .. } => offset,
-                    _ => 0,
-                };
+                let y = (f32::from(row) + 0.5) * f32::from(height);
                 let found = parts.found_at(x, y, offset)?;
                 return Some(self.found_pos(found));
             }
