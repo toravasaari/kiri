@@ -1660,3 +1660,29 @@ fn an_empty_link_of_html_stays_its_tags_and_a_later_end_tag_does_not_end_it() {
         "{kept:?}"
     );
 }
+
+/// The image of the first paragraph of `source`, or of the one in the
+/// centred block, as a backend that draws images asks for it.
+fn lone_image_of(source: &str) -> bool {
+    fn find(block: &Block) -> bool {
+        match block {
+            Block::Paragraph(content) => Inline::lone_image(content).is_some(),
+            Block::Centered(inner) => inner.iter().any(find),
+            _ => false,
+        }
+    }
+    parse(source).blocks.iter().any(find)
+}
+
+#[test]
+fn an_image_stays_a_lone_image_with_anchors_before_it_or_after_it() {
+    // An anchor before it is skipped, as before.
+    assert!(lone_image_of("<a name=\"x\"></a>\n\n![logo](a.png)\n"));
+    // After it, an anchor line that was given to the paragraph is skipped too.
+    assert!(lone_image_of(
+        "![logo](a.png)\n\n<a name=\"x\"></a>\n\n- item\n"
+    ));
+    assert!(lone_image_of(
+        "<p align=\"center\"><img src=\"a.png\"></p>\n\n<a name=\"x\"></a>\n"
+    ));
+}
