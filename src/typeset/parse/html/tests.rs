@@ -699,3 +699,54 @@ fn parse_agrees_with_a_browser_on_documents_that_need_no_repair() {
         assert!(browser::agrees(source, browser::kiri), "{source:?}");
     }
 }
+
+/// Every kind of phrase has a stack of open start tags in the inline join:
+/// `PHRASES` is at least the number of variants. The `match` lists them all,
+/// so a variant added to `Phrase` does not compile until it is here too.
+#[test]
+fn every_phrase_has_a_place_among_the_phrases_of_the_inline_join() {
+    fn listed(phrase: Phrase) -> usize {
+        match phrase {
+            Phrase::Kbd
+            | Phrase::Mark
+            | Phrase::Sub
+            | Phrase::Sup
+            | Phrase::B
+            | Phrase::Strong
+            | Phrase::I
+            | Phrase::Em
+            | Phrase::S
+            | Phrase::Del
+            | Phrase::Code
+            | Phrase::U
+            | Phrase::Span
+            | Phrase::Ins
+            | Phrase::Strike
+            | Phrase::Picture
+            | Phrase::A => phrase as usize,
+        }
+    }
+    let all = [
+        Phrase::Kbd,
+        Phrase::Mark,
+        Phrase::Sub,
+        Phrase::Sup,
+        Phrase::B,
+        Phrase::Strong,
+        Phrase::I,
+        Phrase::Em,
+        Phrase::S,
+        Phrase::Del,
+        Phrase::Code,
+        Phrase::U,
+        Phrase::Span,
+        Phrase::Ins,
+        Phrase::Strike,
+        Phrase::Picture,
+        Phrase::A,
+    ];
+    for phrase in all {
+        assert!(listed(phrase) < inline::PHRASES, "{phrase:?}");
+    }
+    assert_eq!(all.len(), inline::PHRASES);
+}

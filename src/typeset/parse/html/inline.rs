@@ -15,7 +15,7 @@ use crate::typeset::model::{Image, Inline};
 const NESTING: usize = 100;
 
 /// How many kinds of phrase there are: `Phrase::A` is the last of them.
-const PHRASES: usize = Phrase::A as usize + 1;
+pub(super) const PHRASES: usize = Phrase::A as usize + 1;
 
 /// What one tag of inline HTML is, as it is read once.
 pub(super) enum Shape {
