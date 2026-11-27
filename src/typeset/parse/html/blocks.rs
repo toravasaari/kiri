@@ -164,6 +164,7 @@ pub(in crate::typeset::parse) fn read(
     let mut run = Vec::new();
     reader.read_children(count, None, &mut out, &mut run);
     reader.flush(&mut run, None, &mut out);
+    give_anchors(&mut out);
     out
 }
 
@@ -567,6 +568,7 @@ impl<'t> Reader<'t> {
         let mut run = Vec::new();
         self.read_children_but(node, skip, round, &mut blocks, &mut run);
         self.flush(&mut run, round, &mut blocks);
+        give_anchors(&mut blocks);
         blocks
     }
 
@@ -815,6 +817,87 @@ fn drop_first_newline(text: &str) -> &str {
     text.strip_prefix("\r\n")
         .or_else(|| text.strip_prefix('\n'))
         .unwrap_or(text)
+}
+
+/// The anchors that `block` is, when it is a paragraph of nothing but the
+/// places that `<a name>` and `<a id>` name and white space: it draws
+/// nothing, so it is not a block of its own.
+fn only_anchors(block: &Block) -> Option<Vec<Inline>> {
+    let Block::Paragraph(content) = block else {
+        return None;
+    };
+    let blank = |inline: &Inline| match inline {
+        Inline::Anchor(_) | Inline::SoftBreak | Inline::LineBreak => true,
+        Inline::Text(text) => text.trim_ascii().is_empty(),
+        _ => false,
+    };
+    let anchors: Vec<Inline> = (content.iter())
+        .filter(|inline| matches!(inline, Inline::Anchor(_)))
+        .cloned()
+        .collect();
+    (!anchors.is_empty() && content.iter().all(blank)).then_some(anchors)
+}
+
+/// The inlines at the start of `block`, where a place can be given to it.
+fn first_inlines(block: &mut Block) -> Option<&mut Vec<Inline>> {
+    match block {
+        Block::Paragraph(content) | Block::Heading { content, .. } => Some(content),
+        Block::Centered(inner) => inner.first_mut().and_then(first_inlines),
+        _ => None,
+    }
+}
+
+/// The inlines at the end of `block`.
+fn last_inlines(block: &mut Block) -> Option<&mut Vec<Inline>> {
+    match block {
+        Block::Paragraph(content) | Block::Heading { content, .. } => Some(content),
+        Block::Centered(inner) => inner.last_mut().and_then(last_inlines),
+        _ => None,
+    }
+}
+
+/// Gives the places of the blocks that are nothing but anchors to the block
+/// after them, which they stay in front of as jump targets, or else to the
+/// block before them, or leaves them out when there is no paragraph or
+/// heading to give them to. A paragraph of nothing but anchors would draw an
+/// empty paragraph.
+fn give_anchors(blocks: &mut Vec<(Block, Position)>) {
+    if !blocks
+        .iter()
+        .any(|(block, _)| only_anchors(block).is_some())
+    {
+        return;
+    }
+    let mut out: Vec<(Block, Position)> = Vec::with_capacity(blocks.len());
+    let mut carried: Vec<Inline> = Vec::new();
+    for (mut block, position) in std::mem::take(blocks) {
+        if let Some(anchors) = only_anchors(&block) {
+            carried.extend(anchors);
+            continue;
+        }
+        if !carried.is_empty() {
+            match first_inlines(&mut block) {
+                Some(content) => {
+                    let before = std::mem::take(&mut carried);
+                    content.splice(0..0, before);
+                }
+                // No block to give them to after them: the one before.
+                None => give_back(&mut out, &mut carried),
+            }
+        }
+        out.push((block, position));
+    }
+    give_back(&mut out, &mut carried);
+    *blocks = out;
+}
+
+/// Gives `carried` to the end of the last block of `out`, if it has one that
+/// can take them; they are dropped otherwise.
+fn give_back(out: &mut [(Block, Position)], carried: &mut Vec<Inline>) {
+    if let Some(content) = out.last_mut().and_then(|(block, _)| last_inlines(block)) {
+        content.append(carried);
+    }
+    carried.clear();
 }
 
 /// The block that `make` makes of `blocks`, at `position`, with the places

@@ -267,10 +267,12 @@ fn an_a_id_and_an_a_name_in_text_and_alone_are_named_places() {
             (0, "title".into(), NamedKind::Heading, "[1]:block".into()),
         ]
     );
-    // Two tags on a line are a paragraph, and the place the start of it.
-    assert_eq!(
-        named("<a name=\"top\"></a>\n\n# Title\n")[0],
-        (0, "top".into(), NamedKind::Anchor, "[0]:0@0..0".into())
+    // Two tags on a line are a paragraph of only an anchor, which gives the
+    // place to the heading after it.
+    let found = named("<a name=\"top\"></a>\n\n# Title\n");
+    assert!(
+        found.contains(&(0, "top".into(), NamedKind::Anchor, "[0]:0@0..0".into())),
+        "{found:?}"
     );
 }
 
@@ -424,24 +426,25 @@ fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
             .map(|named| (named.id.clone(), named.range.start.path.clone(), named.kind))
             .collect::<Vec<_>>()
     };
-    // Set apart by blank lines: each block inside has a path of its own.
+    // Set apart by blank lines: a block of only an anchor gives it to the
+    // heading after it, which is the place of both.
     let found =
         of("<div align=\"center\">\n\n<a name=\"top\"></a>\n\n# Name\n\n</div>\n\n[up](#top)\n");
     assert_eq!(
         named(&found),
         [
+            ("name".to_owned(), vec![0, 0], NamedKind::Heading),
             ("top".to_owned(), vec![0, 0], NamedKind::Anchor),
-            ("name".to_owned(), vec![0, 1], NamedKind::Heading),
         ]
     );
     assert_eq!(found.links[0].goes, here("top"));
-    // In one HTML block: the anchor is in a paragraph, the heading is a block.
+    // In one HTML block: the same.
     let found = of("<div align=\"center\">\n<a name=\"top\"></a>\n<h2>Sub</h2>\n</div>\n");
     assert_eq!(
         named(&found),
         [
+            ("sub".to_owned(), vec![0, 0], NamedKind::Heading),
             ("top".to_owned(), vec![0, 0], NamedKind::Anchor),
-            ("sub".to_owned(), vec![0, 1], NamedKind::Heading),
         ]
     );
 }
@@ -564,7 +567,7 @@ fn a_link_of_html_keeps_the_named_place_of_its_id_and_name_round_text_or_an_imag
 #[test]
 fn an_anchor_of_html_that_its_end_tag_closes_is_a_named_place_and_no_tags() {
     for (source, id, words) in [
-        ("<a name=\"top\"></a>\n\n[up](#top)\n", "top", ""),
+        ("<a name=\"top\"></a>\n\n[up](#top)\n", "top", "up"),
         ("Go <a name=\"x\">here</a> now.\n", "x", "Go here now."),
         ("<a id=\"y\"></a>Title\n", "y", "Title"),
     ] {

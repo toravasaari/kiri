@@ -171,3 +171,21 @@ fn plain_html_readme_shapes() {
         Capabilities::plain(WIDTH)
     ));
 }
+
+/// A block of nothing but `<a name>` or `<a id>` draws no row of its own: its
+/// places go to the next block, or the one before it, so the blank rows
+/// between two blocks are those of any two blocks.
+#[test]
+fn a_block_of_only_anchors_adds_no_rows() {
+    let plain = |source: &str| render(source, &inputs(&Capabilities::plain(WIDTH), &fixed_theme()));
+    assert_eq!(plain("a\n\n<a name=\"top\"></a>\n\nb\n"), "  a\n\n  b\n");
+    assert_eq!(
+        plain("a\n\n<a id=\"x\"></a>\n<a name=\"y\"></a>\n\nb\n"),
+        "  a\n\n  b\n"
+    );
+    assert_eq!(plain("<a name=\"top\"></a>\n# H\n\nb\n"), "# H\n\n  b\n");
+    // At the end, the places go to the block before.
+    assert_eq!(plain("a\n\n<a name=\"end\"></a>\n"), "  a\n");
+    // With no block to give them to, nothing shows.
+    assert_eq!(plain("<a name=\"x\"></a>\n"), "");
+}

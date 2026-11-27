@@ -1730,9 +1730,8 @@ pub const ROWS: &[Row] = &[
         name: "an anchor line before a centred p ending in a character of more bytes",
         source: "<a name=\"x\"></a>\n<p align=\"center\">\u{e9}\n",
         blocks: r#"
-            p "Anchor(\"x\")" @1=0..16
             centred @2=17..37
-              p "é" @2~17..37
+              p "Anchor(\"x\")é" @2~17..37
         "#,
     },
     Row {
@@ -2341,6 +2340,36 @@ pub const ROWS: &[Row] = &[
         blocks: r#"
             html "<dd>a<table><tr><td>b</td></tr></table>" @2~0..51
         "#,
+    },
+    // A block of nothing but anchors is not a block: its places go to the
+    // next block (the one before at the end), or nowhere.
+    Row {
+        name: "a block of an anchor between two paragraphs is no block",
+        source: "a\n\n<a name=\"top\"></a>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            p "Anchor(\"top\")b" @5=23..24
+        "#,
+    },
+    Row {
+        name: "an anchor line before a heading is given to the heading",
+        source: "<a name=\"top\"></a>\n# H\n\nb\n",
+        blocks: r#"
+            h1 "Anchor(\"top\")H" @2=19..22
+            p "b" @4=24..25
+        "#,
+    },
+    Row {
+        name: "an anchor at the end of a document goes to the block before",
+        source: "a\n\n<a name=\"end\"></a>\n",
+        blocks: r#"
+            p "aAnchor(\"end\")" @1=0..1
+        "#,
+    },
+    Row {
+        name: "a document of only anchors has no block",
+        source: "<a name=\"x\"></a>\n\n<a id=\"y\"></a>\n",
+        blocks: "",
     },
 ];
 
