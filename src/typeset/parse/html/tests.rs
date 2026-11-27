@@ -701,52 +701,41 @@ fn parse_agrees_with_a_browser_on_documents_that_need_no_repair() {
 }
 
 /// Every kind of phrase has a stack of open start tags in the inline join:
-/// `PHRASES` is at least the number of variants. The `match` lists them all,
-/// so a variant added to `Phrase` does not compile until it is here too.
+/// `PHRASES` is the number of variants. `after` gives the variant that follows
+/// each in the enum and has no wildcard, so a variant added to `Phrase` does
+/// not compile until it has an arm, which is where it is chained on; the
+/// test walks the chain from the first variant and checks that it goes
+/// through every discriminant up to `PHRASES - 1` and ends there.
 #[test]
 fn every_phrase_has_a_place_among_the_phrases_of_the_inline_join() {
-    fn listed(phrase: Phrase) -> usize {
+    fn after(phrase: Phrase) -> Option<Phrase> {
         match phrase {
-            Phrase::Kbd
-            | Phrase::Mark
-            | Phrase::Sub
-            | Phrase::Sup
-            | Phrase::B
-            | Phrase::Strong
-            | Phrase::I
-            | Phrase::Em
-            | Phrase::S
-            | Phrase::Del
-            | Phrase::Code
-            | Phrase::U
-            | Phrase::Span
-            | Phrase::Ins
-            | Phrase::Strike
-            | Phrase::Picture
-            | Phrase::A => phrase as usize,
+            Phrase::Kbd => Some(Phrase::Mark),
+            Phrase::Mark => Some(Phrase::Sub),
+            Phrase::Sub => Some(Phrase::Sup),
+            Phrase::Sup => Some(Phrase::B),
+            Phrase::B => Some(Phrase::Strong),
+            Phrase::Strong => Some(Phrase::I),
+            Phrase::I => Some(Phrase::Em),
+            Phrase::Em => Some(Phrase::S),
+            Phrase::S => Some(Phrase::Del),
+            Phrase::Del => Some(Phrase::Code),
+            Phrase::Code => Some(Phrase::U),
+            Phrase::U => Some(Phrase::Span),
+            Phrase::Span => Some(Phrase::Ins),
+            Phrase::Ins => Some(Phrase::Strike),
+            Phrase::Strike => Some(Phrase::Picture),
+            Phrase::Picture => Some(Phrase::A),
+            Phrase::A => None,
         }
     }
-    let all = [
-        Phrase::Kbd,
-        Phrase::Mark,
-        Phrase::Sub,
-        Phrase::Sup,
-        Phrase::B,
-        Phrase::Strong,
-        Phrase::I,
-        Phrase::Em,
-        Phrase::S,
-        Phrase::Del,
-        Phrase::Code,
-        Phrase::U,
-        Phrase::Span,
-        Phrase::Ins,
-        Phrase::Strike,
-        Phrase::Picture,
-        Phrase::A,
-    ];
-    for phrase in all {
-        assert!(listed(phrase) < inline::PHRASES, "{phrase:?}");
+    let mut next = Some(Phrase::Kbd);
+    let mut count = 0;
+    while let Some(phrase) = next {
+        assert_eq!(phrase as usize, count, "{phrase:?} is out of order");
+        assert!(count < inline::PHRASES, "{phrase:?} has no stack");
+        count += 1;
+        next = after(phrase);
     }
-    assert_eq!(all.len(), inline::PHRASES);
+    assert_eq!(count, inline::PHRASES);
 }
