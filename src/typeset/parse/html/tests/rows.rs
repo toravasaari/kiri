@@ -1079,6 +1079,40 @@ pub const ROWS: &[Row] = &[
               p "body" @1~0..54
         "#,
     },
+    // Headings and text in a summary are read apart, as a browser draws
+    // them in boxes of their own.
+    Row {
+        name: "a summary of two headings reads them apart",
+        source: "<details><summary><h2>A</h2><h3>B</h3></summary>body</details>\n",
+        blocks: r#"
+            details "A B" @1=0..62
+              p "body" @1~0..62
+        "#,
+    },
+    Row {
+        name: "a summary of a heading and text after it reads them apart",
+        source: "<details><summary><h2>A</h2>B</summary>body</details>\n",
+        blocks: r#"
+            details "A B" @1=0..53
+              p "body" @1~0..53
+        "#,
+    },
+    Row {
+        name: "a summary of text and a heading after it reads them apart",
+        source: "<details><summary>A<h2>B</h2></summary>body</details>\n",
+        blocks: r#"
+            details "A B" @1=0..53
+              p "body" @1~0..53
+        "#,
+    },
+    Row {
+        name: "a summary of headings with white space beside them gets one space",
+        source: "<details><summary> <h2>A </h2>  <h3> B</h3> </summary>body</details>\n",
+        blocks: r#"
+            details "A B" @1=0..68
+              p "body" @1~0..68
+        "#,
+    },
     Row {
         name: "a details in a list item",
         source: "- Item\n  <details>\n  <summary>S</summary>\n\n  In.\n\n  </details>\n",

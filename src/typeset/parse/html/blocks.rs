@@ -594,7 +594,8 @@ impl<'t> Reader<'t> {
     }
 
     /// The inlines of the text that `node` holds. A heading in a summary
-    /// gives what it holds, in order with the text beside it.
+    /// gives what it holds, in order with the text beside it, and a space
+    /// apart from it, as a browser draws it in a box of its own.
     fn inlines(&self, node: usize) -> Vec<Inline> {
         let in_summary = matches!(&self.tree.nodes[node].kind,
             NodeKind::Element(open) if open.row.treatment == Treatment::Summary);
@@ -602,10 +603,17 @@ impl<'t> Reader<'t> {
             let heading = in_summary
                 && matches!(&self.tree.nodes[child].kind,
                     NodeKind::Element(inner) if matches!(inner.row.treatment, Treatment::Heading(_)));
-            let own = (!heading).then(|| self.leaf(child)).flatten();
-            let held = if heading { self.children[child].as_slice() } else { &[] };
-            own.into_iter()
-                .chain(held.iter().filter_map(|&inner| self.leaf(inner)))
+            if !heading {
+                return self.leaf(child).into_iter().collect::<Vec<_>>();
+            }
+            // The spaces at the ends of the summary and doubled ones are
+            // dropped when the leaves are joined.
+            let space = Leaf::Text(" ");
+            let held = self.children[child].iter().filter_map(|&inner| self.leaf(inner));
+            std::iter::once(space)
+                .chain(held)
+                .chain(std::iter::once(Leaf::Text(" ")))
+                .collect()
         });
         run_inlines(leaves, self.level, self.tags)
     }
