@@ -156,9 +156,10 @@ work.
   does, write a ledger entry (above) and fix it in the next commit; the
   history is not rewritten.
 - A test that takes more than 5 s (10 s in a container) in two runs in a
-  row goes on the `SLOW_TESTS` list in the Makefile by itself: the test
-  targets run nextest through `scripts/slow-tests.py`, which says when it
-  changed the Makefile. Commit that change on its own.
+  row goes on the `SLOW_TESTS` list in the Makefile by itself: `make
+  check`, `check-fast` and the targets of one part run nextest through
+  `scripts/slow-tests.py`, which says when it changed the Makefile. Commit
+  that change on its own.
 - Before rewriting code, pin its current behaviour with tests that pass on
   the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support

@@ -4,7 +4,8 @@ the SLOW_TESTS list in the Makefile.
 
     python3 scripts/slow-tests.py [ARGUMENTS OF cargo nextest run...]
 
-The make targets that run tests call it instead of `cargo nextest run`. It
+The make targets that run the ordinary tests call it instead of
+`cargo nextest run`; `test-slow` and `props` do not. It
 exits with the status of the run. Afterwards it reads the run's JUnit report,
 which .config/nextest.toml has nextest write, and remembers in
 target/slow-tests.json which tests took longer than the limit: 5 s, or 10 s
@@ -26,12 +27,24 @@ LIST_START = "SLOW_TESTS = \\\n"
 
 
 def durations(junit):
-    """Seconds per test name for the tests that ran in a JUnit report."""
+    """Seconds per test name for the tests that ran and passed in a JUnit
+    report; a test that ran more than once keeps its longest time."""
     times = {}
     for case in ElementTree.fromstring(junit).iter("testcase"):
-        if case.find("skipped") is None:
-            times[case.get("name")] = float(case.get("time", "0"))
+        if any(case.find(tag) is not None for tag in ("skipped", "failure", "error")):
+            continue
+        name = case.get("name")
+        times[name] = max(times.get(name, 0.0), float(case.get("time", "0")))
     return times
+
+
+def load_history(path):
+    """The history saved at path; an empty one when the file is missing or
+    cannot be read."""
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 def update(history, times, limit):
@@ -76,19 +89,30 @@ def limit():
 
 
 def main():
-    status = subprocess.run(["cargo", "nextest", "run", *sys.argv[1:]]).returncode
     target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
     junit = target / "nextest" / os.environ.get("NEXTEST_PROFILE", "default") / "junit.xml"
+    # A report left by another run, such as `make props`, is not this one's.
+    junit.unlink(missing_ok=True)
+    status = subprocess.run(["cargo", "nextest", "run", *sys.argv[1:]]).returncode
+    try:
+        record(junit, target / "slow-tests.json")
+    except Exception as error:  # the bookkeeping never changes the run's result
+        print(f"slow-tests: could not record the times: {error}", file=sys.stderr)
+    return status
+
+
+def record(junit, history_file):
+    """Reads the run's report into the history, and puts the tests slow in
+    two runs in a row on SLOW_TESTS."""
     if not junit.exists():
-        return status
+        return
     times = durations(junit.read_text(encoding="utf-8"))
-    # A later run that stops before its report must not read this one again.
     junit.unlink()
-    history_file = target / "slow-tests.json"
-    history = json.loads(history_file.read_text()) if history_file.exists() else {}
     seconds = limit()
-    history, slow = update(history, times, seconds)
-    history_file.write_text(json.dumps(history, indent=0, sort_keys=True))
+    history, slow = update(load_history(history_file), times, seconds)
+    temporary = history_file.with_suffix(".tmp")
+    temporary.write_text(json.dumps(history, indent=0, sort_keys=True))
+    temporary.replace(history_file)
     makefile_path = ROOT / "Makefile"
     makefile = makefile_path.read_text(encoding="utf-8")
     new = [name for name in slow if name not in listed(makefile)]
@@ -101,8 +125,6 @@ def main():
             sep="\n  ",
             file=sys.stderr,
         )
-    return status
-
 
 if __name__ == "__main__":
     sys.exit(main())

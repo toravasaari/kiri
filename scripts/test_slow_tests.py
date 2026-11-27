@@ -5,6 +5,7 @@
 """
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -38,6 +39,32 @@ other:
 class Durations(unittest.TestCase):
     def test_reads_each_test_that_ran(self):
         self.assertEqual(st.durations(JUNIT), {"a::fast": 0.2, "a::slow": 7.5})
+
+
+FAILED = """<testsuites>
+  <testsuite name="kiri-the-reader">
+    <testcase name="a::failed" time="9.0"><failure message="boom"/></testcase>
+    <testcase name="a::broken" time="9.0"><error message="boom"/></testcase>
+    <testcase name="a::twice" time="2.0"/>
+    <testcase name="a::twice" time="6.0"/>
+    <testcase name="a::twice" time="1.0"/>
+  </testsuite>
+</testsuites>
+"""
+
+
+class DurationsOfOddRuns(unittest.TestCase):
+    def test_leaves_out_failed_tests_and_keeps_the_longest_time(self):
+        self.assertEqual(st.durations(FAILED), {"a::twice": 6.0})
+
+
+class History(unittest.TestCase):
+    def test_a_missing_or_broken_file_is_an_empty_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "slow-tests.json"
+            self.assertEqual(st.load_history(path), {})
+            path.write_text("{not json")
+            self.assertEqual(st.load_history(path), {})
 
 
 class Update(unittest.TestCase):
