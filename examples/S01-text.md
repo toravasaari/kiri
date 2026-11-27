@@ -189,10 +189,10 @@ A line in a wrapper set apart by blank lines is centred, and its list is not:
 
 </div>
 
-A Markdown paragraph ends an open `<p>`, as in a browser. So a `<p>` with
-`align="center"` round blank lines and Markdown centres nothing, and its two
-tags show in the muted colour. In a `<div align="center">`, as above, the same
-lines are centred. Nothing below is centred:
+A Markdown paragraph closes an open `<p>` too. In the example below the blank
+line closes the `<p align="center">` before the Markdown line, so the later
+`</p>` closes nothing: both tags show in the muted colour, and nothing is
+centred. In a `<div align="center">`, as above, the same lines are centred.
 
 <p align="center">
 
@@ -200,9 +200,10 @@ A line of Markdown, not centred.
 
 </p>
 
-A `<p align="center">` whose `</p>` is left out ends where a browser ends
-it, at the next `<p>`, `<div>`, `<center>` or `<details>`, and what it
-holds so far is centred. Both lines below are centred:
+A `<p>` that has no end tag is closed by the next `<p>`, `<div>`, `<center>`
+or `<details>`, as in a browser, and what it holds is centred. In the example
+below there is no `</p>` after the first line, but the next
+`<p align="center">` closes it, so both lines are centred:
 
 <p align="center">A centred line, its end tag left out.
 <p align="center">The second line.
