@@ -64,17 +64,22 @@ clippy:
 .PHONY: test
 test:
 	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace \
-			&& cargo nextest run --workspace --no-default-features; \
+		$(NEXTEST) --workspace \
+			&& $(NEXTEST) --workspace --no-default-features; \
 	else \
 		echo "test: cargo-nextest not installed, using cargo test (cargo install --locked cargo-nextest)"; \
 		cargo test --workspace \
 			&& cargo test --workspace --no-default-features; \
 	fi
 
-# The tests that take more than 5 s on an idle host. `check` runs them;
-# `check-fast` and the checks and tests of one part leave them out. A test
-# that grows slower than that goes on this list.
+# cargo nextest run, followed by scripts/slow-tests.py's look at how long
+# each test took.
+NEXTEST = python3 scripts/slow-tests.py
+
+# The tests that take more than 5 s. `check` runs them; `check-fast` and the
+# checks and tests of one part leave them out. A test over 5 s (10 s in a
+# container) in two runs in a row goes on this list by itself, first in it,
+# through $(NEXTEST); commit the change.
 SLOW_TESTS = \
 	typeset::locate::tests::what_is_at_a_cell_of_a_page_is_a_place_that_is_shown_on_that_row \
 	typeset::reading::places::tests::what_is_under_a_glyph_of_a_text_on_a_page_is_the_place_it_shows \
@@ -107,7 +112,7 @@ NO_NEXTEST = echo "$@: cargo-nextest not installed, using cargo test (cargo inst
 check-fast: fmt-check module-map-check
 	cargo clippy --workspace --all-targets -- -D warnings
 	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace -E 'not ($(SLOW_FILTER))'; \
+		$(NEXTEST) --workspace -E 'not ($(SLOW_FILTER))'; \
 	else \
 		$(NO_NEXTEST); \
 		cargo test --workspace -- $(SLOW_SKIPS); \
@@ -117,7 +122,7 @@ check-fast: fmt-check module-map-check
 # `check-it` is `check-fast` for them.
 define test_it
 @if command -v cargo-nextest >/dev/null; then \
-	cargo nextest run --workspace \
+	$(NEXTEST) --workspace \
 		-E 'binary_id(kiri-the-reader::it) and not ($(SLOW_FILTER))'; \
 else \
 	$(NO_NEXTEST); \
@@ -142,7 +147,7 @@ check-it: fmt-check
 # test's path, so more tests run, of other parts too.
 define test_area
 @if command -v cargo-nextest >/dev/null; then \
-	cargo nextest run --workspace \
+	$(NEXTEST) --workspace \
 		-E 'package(kiri-the-reader) and kind(lib) and test(/^$(1)::/) and not ($(SLOW_FILTER))'; \
 else \
 	$(NO_NEXTEST); \
