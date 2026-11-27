@@ -95,10 +95,26 @@ pub enum Centres {
     ByAlign,
 }
 
-/// An inline element that kiri reads from its opening and closing tags,
-/// with the inlines between them as its content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phrase {
+/// The enum `Phrase` and the list `Phrase::ALL` of its variants, made from one
+/// list of names, so that no variant is missing from the list or from the
+/// count `PHRASES` that is its length. The comments of a name go with it.
+macro_rules! phrases {
+    ($($(#[$doc:meta])* $name:ident,)*) => {
+        /// An inline element that kiri reads from its opening and closing
+        /// tags, with the inlines between them as its content.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum Phrase {
+            $($(#[$doc])* $name,)*
+        }
+
+        impl Phrase {
+            /// Every phrase, in the order of the enum: `ALL[i] as usize == i`.
+            pub const ALL: &'static [Phrase] = &[$(Phrase::$name,)*];
+        }
+    };
+}
+
+phrases! {
     Kbd,
     Mark,
     Sub,

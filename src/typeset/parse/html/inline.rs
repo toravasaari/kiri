@@ -14,8 +14,8 @@ use crate::typeset::model::{Image, Inline};
 /// tag, so that the elements made of them are nested to that depth at most.
 const NESTING: usize = 100;
 
-/// How many kinds of phrase there are: `Phrase::A` is the last of them.
-pub(super) const PHRASES: usize = Phrase::A as usize + 1;
+/// How many kinds of phrase there are: the length of `Phrase::ALL`.
+pub(super) const PHRASES: usize = Phrase::ALL.len();
 
 /// What one tag of inline HTML is, as it is read once.
 pub(super) enum Shape {

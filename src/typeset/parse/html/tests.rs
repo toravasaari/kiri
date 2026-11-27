@@ -701,11 +701,10 @@ fn parse_agrees_with_a_browser_on_documents_that_need_no_repair() {
 }
 
 /// Every kind of phrase has a stack of open start tags in the inline join:
-/// `PHRASES` is the number of variants. `after` gives the variant that follows
-/// each in the enum and has no wildcard, so a variant added to `Phrase` does
-/// not compile until it has an arm, which is where it is chained on; the
-/// test walks the chain from the first variant and checks that it goes
-/// through every discriminant up to `PHRASES - 1` and ends there.
+/// `Phrase` and `Phrase::ALL` are made from one list, and `PHRASES` is the
+/// length of `ALL`, so none is missing from the count. The test checks that
+/// each is at its own place in `ALL`, and that `after`, which has an arm for
+/// every variant with no wildcard, chains through all of them from the first.
 #[test]
 fn every_phrase_has_a_place_among_the_phrases_of_the_inline_join() {
     fn after(phrase: Phrase) -> Option<Phrase> {
@@ -729,13 +728,19 @@ fn every_phrase_has_a_place_among_the_phrases_of_the_inline_join() {
             Phrase::A => None,
         }
     }
-    let mut next = Some(Phrase::Kbd);
-    let mut count = 0;
+    assert_eq!(Phrase::ALL.len(), inline::PHRASES);
+    for (at, phrase) in Phrase::ALL.iter().enumerate() {
+        assert_eq!(*phrase as usize, at, "{phrase:?} is out of order");
+    }
+    let mut chain = Vec::new();
+    let mut next = Phrase::ALL.first().copied();
     while let Some(phrase) = next {
-        assert_eq!(phrase as usize, count, "{phrase:?} is out of order");
-        assert!(count < inline::PHRASES, "{phrase:?} has no stack");
-        count += 1;
+        chain.push(phrase);
         next = after(phrase);
     }
-    assert_eq!(count, inline::PHRASES);
+    assert_eq!(
+        chain,
+        Phrase::ALL,
+        "the chain of `after` visits every phrase"
+    );
 }
