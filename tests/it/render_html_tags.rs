@@ -186,6 +186,11 @@ fn a_block_of_only_anchors_adds_no_rows() {
     assert_eq!(plain("<a name=\"top\"></a>\n# H\n\nb\n"), "# H\n\n  b\n");
     // At the end, the places go to the block before.
     assert_eq!(plain("a\n\n<a name=\"end\"></a>\n"), "  a\n");
-    // With no block to give them to, nothing shows.
-    assert_eq!(plain("<a name=\"x\"></a>\n"), "");
+    // With no paragraph or heading to give them to, the block of the anchor
+    // stays, so that a link to it still goes somewhere: one empty row.
+    assert_eq!(plain("<a name=\"x\"></a>\n"), "\n");
+    assert_eq!(
+        plain("a\n\n<div align=\"center\"><a name=\"x\"></a></div>\n\nb\n"),
+        "  a\n\n\n\n  b\n"
+    );
 }

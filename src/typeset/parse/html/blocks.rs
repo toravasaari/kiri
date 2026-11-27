@@ -858,9 +858,10 @@ fn last_inlines(block: &mut Block) -> Option<&mut Vec<Inline>> {
 
 /// Gives the places of the blocks that are nothing but anchors to the block
 /// after them, which they stay in front of as jump targets, or else to the
-/// block before them, or leaves them out when there is no paragraph or
-/// heading to give them to. A paragraph of nothing but anchors would draw an
-/// empty paragraph.
+/// block before them. A paragraph of nothing but anchors would draw an empty
+/// paragraph, so it is not kept; but when there is no paragraph or heading in
+/// the container to give them to, it is, as it was read, so that no jump
+/// target is lost.
 fn give_anchors(blocks: &mut Vec<(Block, Position)>) {
     if !blocks
         .iter()
@@ -869,16 +870,17 @@ fn give_anchors(blocks: &mut Vec<(Block, Position)>) {
         return;
     }
     let mut out: Vec<(Block, Position)> = Vec::with_capacity(blocks.len());
-    let mut carried: Vec<Inline> = Vec::new();
+    let mut carried: Vec<(Block, Position)> = Vec::new();
     for (mut block, position) in std::mem::take(blocks) {
-        if let Some(anchors) = only_anchors(&block) {
-            carried.extend(anchors);
+        if only_anchors(&block).is_some() {
+            carried.push((block, position));
             continue;
         }
         if !carried.is_empty() {
             match first_inlines(&mut block) {
                 Some(content) => {
-                    let before = std::mem::take(&mut carried);
+                    let before = anchors_of(&carried);
+                    carried.clear();
                     content.splice(0..0, before);
                 }
                 // No block to give them to after them: the one before.
@@ -891,13 +893,27 @@ fn give_anchors(blocks: &mut Vec<(Block, Position)>) {
     *blocks = out;
 }
 
+/// The anchors of the blocks `carried`, which are all only anchors.
+fn anchors_of(carried: &[(Block, Position)]) -> Vec<Inline> {
+    (carried.iter())
+        .flat_map(|(block, _)| only_anchors(block).unwrap_or_default())
+        .collect()
+}
+
 /// Gives `carried` to the end of the last block of `out`, if it has one that
-/// can take them; they are dropped otherwise.
-fn give_back(out: &mut [(Block, Position)], carried: &mut Vec<Inline>) {
-    if let Some(content) = out.last_mut().and_then(|(block, _)| last_inlines(block)) {
-        content.append(carried);
+/// can take them; they stay blocks of their own otherwise, after it.
+fn give_back(out: &mut Vec<(Block, Position)>, carried: &mut Vec<(Block, Position)>) {
+    if carried.is_empty() {
+        return;
     }
-    carried.clear();
+    let anchors = anchors_of(carried);
+    match out.last_mut().and_then(|(block, _)| last_inlines(block)) {
+        Some(content) => {
+            content.extend(anchors);
+            carried.clear();
+        }
+        None => out.append(carried),
+    }
 }
 
 /// The block that `make` makes of `blocks`, at `position`, with the places

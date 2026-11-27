@@ -2367,9 +2367,89 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a document of only anchors has no block",
+        name: "an anchor alone in a centred div is kept",
+        source: "a\n\n<div align=\"center\"><a name=\"x\"></a></div>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            centred @3=3..45
+              p "Anchor(\"x\")" @3~3..45
+            p "b" @5=47..48
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a centred p is kept",
+        source: "a\n\n<p align=\"center\"><a name=\"x\"></a></p>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            centred @3=3..41
+              p "Anchor(\"x\")" @3~3..41
+            p "b" @5=43..44
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a centred div with blank lines is kept",
+        source: "a\n\n<div align=\"center\">\n\n<a name=\"x\"></a>\n\n</div>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            centred @3=3..49
+              p "Anchor(\"x\")" @5=25..41
+            p "b" @9=51..52
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a quote is kept",
+        source: "a\n\n> <a name=\"x\"></a>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            quote @3=3..21
+              p "Anchor(\"x\")" @3=5..21
+            p "b" @5=23..24
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a list item is kept",
+        source: "- a\n- <a name=\"x\"></a>\n- b\n",
+        blocks: r#"
+            list @1=0..26
+              item
+                p "a" @1=2..3
+              item
+                p "Anchor(\"x\")" @2=6..22
+              item
+                p "b" @3=25..26
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a details is kept",
+        source: "<details>\n<summary>S</summary>\n\n<a name=\"x\"></a>\n\n</details>\n",
+        blocks: r#"
+            details "S" @1=0..60
+              p "Anchor(\"x\")" @4=32..48
+        "#,
+    },
+    Row {
+        name: "an anchor before a code block at the start is kept",
+        source: "<a name=\"x\"></a>\n\n```\ncode\n```\n",
+        blocks: r#"
+            p "Anchor(\"x\")" @1=0..16
+            code "code\n" @3=18..30
+        "#,
+    },
+    Row {
+        name: "an anchor after a table at the end is kept",
+        source: "| t |\n|---|\n| c |\n\n<a name=\"x\"></a>\n",
+        blocks: r#"
+            Table(Table { alignments: [Left], cells: Parsed { header: [[Text("t")]], rows: [[[Text("c")]]] } }) @1=0..17
+            p "Anchor(\"x\")" @5=19..35
+        "#,
+    },
+    Row {
+        name: "a document of only anchors keeps them",
         source: "<a name=\"x\"></a>\n\n<a id=\"y\"></a>\n",
-        blocks: "",
+        blocks: r#"
+            p "Anchor(\"x\")" @1=0..16
+            p "Anchor(\"y\")" @3=18..32
+        "#,
     },
 ];
 
