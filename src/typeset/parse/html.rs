@@ -17,6 +17,7 @@ pub(super) use blocks::{Part, read};
 #[cfg(test)]
 use elements::Phrase;
 use elements::heading_level;
+pub use elements::{HtmlLevel, HtmlTags};
 pub use inline::{Joined, html_inlines};
 #[cfg(test)]
 use inline::{Shape, read_tag};
@@ -33,7 +34,7 @@ pub struct Img {
 /// The image that inline HTML, one tag, is.
 #[cfg(test)]
 pub fn inline_img(html: &str) -> Option<Img> {
-    match read_tag(html) {
+    match read_tag(html, HtmlLevel::All) {
         Shape::Image(img) => Some(img),
         _ => None,
     }
@@ -42,7 +43,7 @@ pub fn inline_img(html: &str) -> Option<Img> {
 /// The `href` of inline HTML that is one `<a>` tag.
 #[cfg(test)]
 pub fn link_start(html: &str) -> Option<String> {
-    match read_tag(html) {
+    match read_tag(html, HtmlLevel::All) {
         Shape::Start {
             phrase: Phrase::A,
             href,
@@ -200,7 +201,7 @@ fn collapse_whitespace(text: &str) -> String {
 /// The element that inline HTML, one opening tag, starts.
 #[cfg(test)]
 pub fn phrase_start(html: &str) -> Option<Phrase> {
-    match read_tag(html) {
+    match read_tag(html, HtmlLevel::All) {
         // An `<a>` without an `href` is a place to go to, not a link.
         Shape::Start {
             phrase: Phrase::A,
@@ -212,12 +213,19 @@ pub fn phrase_start(html: &str) -> Option<Phrase> {
     }
 }
 
+/// Whether inline HTML is one start tag or one end tag: what is left out
+/// when the tags with no effect are hidden.
+#[cfg(test)]
+pub fn is_tag(html: &str) -> bool {
+    inline::is_tag(html)
+}
+
 /// Whether inline HTML is one `<a>` start tag without an `href`: no link,
 /// but the start that a `</a>` after it ends.
 #[cfg(test)]
 pub fn is_anchor_start(html: &str) -> bool {
     matches!(
-        read_tag(html),
+        read_tag(html, HtmlLevel::All),
         Shape::Start {
             phrase: Phrase::A,
             href: None,
@@ -229,7 +237,7 @@ pub fn is_anchor_start(html: &str) -> bool {
 /// The element that inline HTML, one closing tag, ends.
 #[cfg(test)]
 pub fn phrase_end(html: &str) -> Option<Phrase> {
-    match read_tag(html) {
+    match read_tag(html, HtmlLevel::All) {
         Shape::End(phrase) => Some(phrase),
         _ => None,
     }
@@ -238,13 +246,13 @@ pub fn phrase_end(html: &str) -> Option<Phrase> {
 /// Whether inline HTML is one `<br>`, in any of its spellings.
 #[cfg(test)]
 pub fn is_line_break(html: &str) -> bool {
-    matches!(read_tag(html), Shape::Break)
+    matches!(read_tag(html, HtmlLevel::All), Shape::Break)
 }
 
 /// Whether inline HTML is one `</a>`.
 #[cfg(test)]
 pub fn is_link_end(html: &str) -> bool {
-    matches!(read_tag(html), Shape::End(Phrase::A))
+    matches!(read_tag(html, HtmlLevel::All), Shape::End(Phrase::A))
 }
 
 fn img(tag: &Tag) -> Option<Img> {

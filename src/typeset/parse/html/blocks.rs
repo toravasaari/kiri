@@ -1,4 +1,4 @@
-//! The tree of the HTML in a container read as the blocks of the model, by the table of elements, at the level "all".
+//! The tree of the HTML in a container read as the blocks of the model, by the table of elements and the level of HTML.
 //!
 //! The parts of a container (the document, a quote, a list item) come in
 //! order: HTML blocks as comrak cut them, and Markdown blocks already read.
@@ -27,7 +27,7 @@
 
 use comrak::nodes::{LineColumn, Sourcepos};
 
-use super::elements::{Holds, Kind, Treatment, get, is_centred};
+use super::elements::{Holds, HtmlLevel, HtmlTags, Kind, Treatment, get, is_centred};
 use super::inline::{Leaf, run_inlines};
 use super::tree::{Closing, NodeKind, Opened, Piece, Span, Tree};
 use super::{decode_entities, id_of, spanned_tokens};
@@ -76,7 +76,11 @@ impl HtmlBlock<'_> {
 }
 
 /// The blocks of a container of `parts`, in order, with their places.
-pub(in crate::typeset::parse) fn read(parts: Vec<Part>) -> Vec<(Block, Position)> {
+pub(in crate::typeset::parse) fn read(
+    parts: Vec<Part>,
+    level: HtmlLevel,
+    tags: HtmlTags,
+) -> Vec<(Block, Position)> {
     let mut texts = Vec::with_capacity(parts.len());
     let mut markdown = Vec::with_capacity(parts.len());
     for part in parts {
@@ -125,6 +129,8 @@ pub(in crate::typeset::parse) fn read(parts: Vec<Part>) -> Vec<(Block, Position)
         }
     }
     let mut reader = Reader {
+        level,
+        tags,
         tree: &tree,
         html: &html,
         markdown,
@@ -144,6 +150,10 @@ pub(in crate::typeset::parse) fn read(parts: Vec<Part>) -> Vec<(Block, Position)
 type Round = Option<(usize, Sourcepos)>;
 
 struct Reader<'t> {
+    /// The level of HTML that is read.
+    level: HtmlLevel,
+    /// What becomes of the tags that have no effect.
+    tags: HtmlTags,
     tree: &'t Tree,
     html: &'t [Option<HtmlBlock<'t>>],
     /// The blocks of each block of Markdown, taken when it is read.
@@ -198,9 +208,12 @@ impl<'t> Reader<'t> {
         (Block::Html(source), position)
     }
 
-    /// A tag that does nothing, as a block of its own.
+    /// A tag that does nothing, as a block of its own, or nothing when the
+    /// tags with no effect are hidden.
     fn dim(&self, at: &Span, round: Round, out: &mut Vec<(Block, Position)>) {
-        out.push(self.source(at.piece, at.bytes.clone(), round));
+        if self.tags == HtmlTags::Dim {
+            out.push(self.source(at.piece, at.bytes.clone(), round));
+        }
     }
 
     /// Reads the nodes in `parent` onto `out`, a run of text going on in
@@ -228,6 +241,9 @@ impl<'t> Reader<'t> {
         for at in 0..self.children[parent].len() {
             let child = self.children[parent][at];
             if Some(child) == skip {
+                // What is read apart from the run, such as the summary of a
+                // details, cuts it: its bytes are not the run's.
+                self.flush(run, round, out);
                 continue;
             }
             let node = &self.tree.nodes[child];
@@ -239,7 +255,7 @@ impl<'t> Reader<'t> {
                     // A void block, such as `<hr>`, is source for now.
                     Some(row) if row.kind == Kind::VoidBlock && !end => {
                         self.flush(run, round, out);
-                        self.dim(&node.at, round, out);
+                        out.push(self.source(node.at.piece, node.at.bytes.clone(), round));
                     }
                     _ => self.extend(run, child, round, out),
                 },
@@ -414,7 +430,9 @@ impl<'t> Reader<'t> {
         round: Round,
         out: &mut Vec<(Block, Position)>,
     ) {
-        if !self.holds_allowed(node, open) {
+        // An element that the level does not read has no effect: its tags
+        // are dim and what it holds is read on its own.
+        if open.row.is_beyond(self.level) || !self.holds_allowed(node, open) {
             return self.dissolve(node, open, round, out);
         }
         // An element that something else ended before it held anything, such
@@ -484,8 +502,10 @@ impl<'t> Reader<'t> {
                 }
                 None => self.as_written(node, open, round, out),
             },
-            // The elements that are source for now, and a `<summary>` that
-            // is not the summary of a `<details>`.
+            // A `<summary>` that is not the summary of a `<details>` has no
+            // effect: its tags are dim and its text is read on its own.
+            Treatment::Summary => self.dissolve(node, open, round, out),
+            // The elements that are source for now.
             _ => self.as_written(node, open, round, out),
         }
     }
@@ -541,7 +561,7 @@ impl<'t> Reader<'t> {
         let leaves = self.children[node]
             .iter()
             .filter_map(|&child| self.leaf(child));
-        run_inlines(leaves)
+        run_inlines(leaves, self.level, self.tags)
     }
 
     /// The leaf of a run that `node` is.
@@ -579,7 +599,11 @@ impl<'t> Reader<'t> {
         );
         let start = self.tree.nodes[leaves[0]].at.bytes.start;
         let end = self.end_of(leaves[leaves.len() - 1]);
-        let inlines = run_inlines(leaves.iter().filter_map(|&node| self.leaf(node)));
+        let inlines = run_inlines(
+            leaves.iter().filter_map(|&node| self.leaf(node)),
+            self.level,
+            self.tags,
+        );
         let shows = inlines.iter().any(|inline| match inline {
             Inline::Html(_) => false,
             Inline::Text(text) => !text.trim_ascii().is_empty(),
@@ -591,7 +615,18 @@ impl<'t> Reader<'t> {
                 NodeKind::Comment | NodeKind::Text
             )
         });
+        // Nothing but tags that have no effect, and the comments and white
+        // space between them: they can be left out.
+        let dim = (leaves.iter()).all(|&node| {
+            matches!(
+                self.tree.nodes[node].kind,
+                NodeKind::Comment | NodeKind::Text | NodeKind::Tag { .. }
+            )
+        });
         if !shows {
+            if dim && tags && self.tags == HtmlTags::Hide {
+                return;
+            }
             // Comments beside other things in their HTML block show nothing,
             // as in a browser; alone in it they are left as written, and so
             // are tags with nothing to show.

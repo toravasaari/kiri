@@ -115,13 +115,18 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ## Other tags
 
-  Text with <span>a span</span> and <abbr>an
-  abbreviation</abbr> stays as source.
+  Text with a span, which draws nothing of its
+  own, and <abbr>an abbreviation</abbr>, whose
+  tags stay as source.
 
   A div block stays as source.
 
   <details>
 
-  <summary>Never closed</summary>
+  <summary>
+
+  Never closed
+
+  </summary>
 
   Runs to the end of the document.

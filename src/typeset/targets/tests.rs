@@ -436,7 +436,7 @@ fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
     );
     assert_eq!(found.links[0].goes, here("top"));
     // In one HTML block: the anchor is in a paragraph, the heading is a block.
-    let found = of("<center>\n<a name=\"top\"></a>\n<h2>Sub</h2>\n</center>\n");
+    let found = of("<div align=\"center\">\n<a name=\"top\"></a>\n<h2>Sub</h2>\n</div>\n");
     assert_eq!(
         named(&found),
         [

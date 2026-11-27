@@ -166,6 +166,35 @@ fn marked_text_has_the_marks_colours_and_a_sub_or_sup_its_own_size_and_shift() {
     assert_eq!(runs_of(Inline::Text("x".into()))[0].script, None);
 }
 
+#[test]
+fn a_tag_in_text_is_drawn_dim_and_the_text_round_it_is_not() {
+    let cursor = Shared::new(Cursor::off());
+    let ink = Ink {
+        pictures: &Plain,
+        room: 600.0,
+        cursor: &cursor,
+    };
+    let content = [
+        Inline::Text("a ".into()),
+        Inline::Html("<abbr>".into()),
+        Inline::Text("b".into()),
+        Inline::Html("</abbr>".into()),
+    ];
+    let found: Vec<(String, Option<Brush>)> = runs(&content, &LOOK, ink)
+        .into_iter()
+        .map(|run| (run.text, run.color))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("a ".to_owned(), None),
+            ("<abbr>".to_owned(), Some(LOOK.quote)),
+            ("b".to_owned(), None),
+            ("</abbr>".to_owned(), Some(LOOK.quote)),
+        ]
+    );
+}
+
 fn page(markdown: &str) -> Page {
     let document = parse(markdown);
     let blocks: Vec<&Block> = document.blocks.iter().collect();

@@ -4,7 +4,7 @@ pub mod csv;
 mod footnotes;
 mod front_matter;
 mod html;
-pub use html::{InnerHeading, anchor_ids};
+pub use html::{HtmlLevel, HtmlTags, InnerHeading, anchor_ids};
 #[cfg(test)]
 mod inline_places;
 mod unknown;
@@ -30,21 +30,65 @@ pub fn parse(source: &str) -> Document {
 /// Parses Markdown, with or without recognising `front_matter` at its
 /// start.
 pub fn parse_with(source: &str, front_matter: bool) -> Document {
-    parse_with_warnings(source, front_matter).0
+    let options = ParseOptions {
+        front_matter,
+        ..ParseOptions::default()
+    };
+    parse_with_warnings(source, &options).0
 }
 
-/// Parses Markdown as [`parse_with`] does, and tells what it leaves out:
-/// a warning for each kind of Markdown element that the document model
-/// has no place for, at the line where the first of its kind starts.
-pub fn parse_with_warnings(source: &str, front_matter: bool) -> (Document, Vec<Diagnostic>) {
-    parse_with_options(source, front_matter, &options())
+/// Parses Markdown at the level "all" of HTML, which reads `<u>` and
+/// `<center>` too: for the tests whose subject is what the tables of
+/// elements say, not the default level.
+#[cfg(test)]
+pub fn parse_all(source: &str) -> Document {
+    let options = ParseOptions {
+        html: HtmlLevel::All,
+        ..ParseOptions::default()
+    };
+    parse_with_warnings(source, &options).0
+}
+
+/// What the reading of a document depends on, as the settings give it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Whether front matter at the start is recognised.
+    pub front_matter: bool,
+    /// The level of HTML that is read: what GitHub shows, or all that kiri
+    /// reads.
+    pub html: HtmlLevel,
+    /// Whether the tags that have no effect are shown dim or left out.
+    pub html_tags: HtmlTags,
+}
+
+impl Default for ParseOptions {
+    /// Front matter recognised and GitHub's level of HTML, as `parse` reads.
+    fn default() -> Self {
+        Self {
+            front_matter: true,
+            html: HtmlLevel::default(),
+            html_tags: HtmlTags::default(),
+        }
+    }
+}
+
+/// Parses Markdown as [`parse_with`] does with `parse_options`, and tells
+/// what it leaves out: a warning for each kind of Markdown element that the
+/// document model has no place for, at the line where the first of its kind
+/// starts.
+pub fn parse_with_warnings(
+    source: &str,
+    parse_options: &ParseOptions,
+) -> (Document, Vec<Diagnostic>) {
+    parse_with_options(source, parse_options, &options())
 }
 
 fn parse_with_options(
     source: &str,
-    front_matter: bool,
+    parse_options: &ParseOptions,
     options: &Options<'_>,
 ) -> (Document, Vec<Diagnostic>) {
+    let front_matter = parse_options.front_matter;
     let split = front_matter.then(|| front_matter::split(source)).flatten();
     let (front_matter, markdown) = match split {
         Some((front_matter, markdown)) => (Some(Block::FrontMatter(front_matter)), markdown),
@@ -52,7 +96,7 @@ fn parse_with_options(
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, options);
-    let mut unknown = Unknown::default();
+    let mut unknown = Unknown::new(parse_options.html, parse_options.html_tags);
     let (blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_bytes = source.len() - markdown.len();
@@ -272,7 +316,7 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
             ),
         })
         .collect();
-    let mut blocks = html::read(parts);
+    let mut blocks = html::read(parts, unknown.html, unknown.html_tags);
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
 }
@@ -350,12 +394,24 @@ fn paragraph_of(
 fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     let mut children = Vec::new();
     let block = match &node.data().value {
-        NodeValue::Heading(heading) => Block::Heading {
-            level: heading.level,
-            content: inlines(node, unknown),
-            id: None,
-        },
-        NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
+        NodeValue::Heading(heading) => {
+            let content = inlines(node, unknown);
+            if emptied(node, content.is_empty(), unknown) {
+                return None;
+            }
+            Block::Heading {
+                level: heading.level,
+                content,
+                id: None,
+            }
+        }
+        NodeValue::Paragraph => {
+            let content = inlines(node, unknown);
+            if emptied(node, content.is_empty(), unknown) {
+                return None;
+            }
+            Block::Paragraph(content)
+        }
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.as_str().into(),
@@ -363,11 +419,17 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         },
         NodeValue::BlockQuote => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+            if emptied(node, blocks.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::BlockQuote(blocks)
         }
         NodeValue::Alert(alert) => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+            if emptied(node, blocks.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::Alert {
                 kind: match alert.alert_type {
@@ -384,7 +446,12 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             }
         }
         NodeValue::List(list) => {
-            let (items, positions) = node.children().map(|item| list_item(item, unknown)).unzip();
+            let (items, positions): (Vec<_>, Vec<_>) = (node.children())
+                .filter_map(|item| list_item(item, unknown))
+                .unzip();
+            if emptied(node, items.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::List(List {
                 start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
@@ -407,14 +474,24 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     Some((block, position))
 }
 
-fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
+/// Whether the block `node` is left out: hiding the tags emptied it, and it
+/// held something as written. What was empty as written stays.
+fn emptied(node: Node<'_>, empty: bool, unknown: &Unknown) -> bool {
+    empty && unknown.html_tags == HtmlTags::Hide && node.first_child().is_some()
+}
+
+/// An item of a list, or `None` when hiding the tags left it with nothing.
+fn list_item(node: Node<'_>, unknown: &mut Unknown) -> Option<(ListItem, Position)> {
     let checked = match &node.data().value {
         NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
         _ => None,
     };
     let (blocks, children): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+    if emptied(node, blocks.is_empty(), unknown) {
+        return None;
+    }
     let position = Position { at: None, children };
-    (ListItem { checked, blocks }, position)
+    Some((ListItem { checked, blocks }, position))
 }
 
 fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {
@@ -448,7 +525,7 @@ fn inlines(parent: Node<'_>, unknown: &mut Unknown) -> Vec<Inline> {
 }
 
 fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) -> Vec<Inline> {
-    let mut joined = Joined::default();
+    let mut joined = Joined::new(unknown.html, unknown.html_tags);
     // Whether the last node was math read as text, which the text around
     // it joins.
     let mut after_math = false;
@@ -500,7 +577,7 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &options_without_math());
     // Nothing here is Markdown that the parser reads, so nothing is left out.
-    let mut unknown = Unknown::default();
+    let mut unknown = Unknown::new(HtmlLevel::default(), HtmlTags::default());
     (root.first_child())
         .map(|paragraph| inlines(paragraph, &mut unknown))
         .unwrap_or_default()
@@ -512,7 +589,11 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
 pub fn html_headings(source: &str) -> Vec<InnerHeading> {
     let mut found = html::headings(source);
     for heading in &mut found {
-        heading.content = html_inlines(std::mem::take(&mut heading.content));
+        heading.content = html_inlines(
+            std::mem::take(&mut heading.content),
+            HtmlLevel::default(),
+            HtmlTags::default(),
+        );
     }
     found
 }

@@ -9,12 +9,12 @@ use proptest::prelude::*;
 
 use super::browser;
 use crate::testing::props_config;
-use crate::typeset::parse::parse;
+use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_with_warnings};
 
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 26] = [
+const PIECES: [&str; 36] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -41,6 +41,16 @@ const PIECES: [&str; 26] = [
     "\r\n",
     " ",
     "<p>",
+    "<span>",
+    "</span>",
+    "<abbr>",
+    "</abbr>",
+    "<ins>",
+    "</ins>",
+    "<u>",
+    "</u>",
+    "<strike>",
+    "</strike>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -100,7 +110,7 @@ proptest! {
     fn any_document_of_wrapper_tags_reads_with_places_on_its_source_and_all_its_words(
         (source, marks) in documents(),
     ) {
-        let document = parse(&source);
+        let document = parse_all(&source);
         for (path, _) in document.blocks() {
             let Some(place) = document.places.get(&path) else {
                 continue;
@@ -137,6 +147,49 @@ fn count_tags(text: &str, name: &str, end: bool) -> usize {
 proptest! {
     #![proptest_config(props_config())]
 
+    /// With `html_tags = "hide"` no tag of a document, broken or not, is
+    /// shown: the tags of these documents are read, or left out. The text
+    /// that was there stays: every word of the document is in what is read.
+    /// A `<summary>` outside a `<details>` is the exception: it is source
+    /// for now and stays as written, with whatever tags are in it, so a
+    /// document that shows one is left out.
+    #[test]
+    fn no_tag_of_any_document_is_shown_when_the_tags_are_hidden(
+        (source, marks) in documents(),
+    ) {
+        let options = ParseOptions {
+            html: HtmlLevel::All,
+            html_tags: HtmlTags::Hide,
+            ..ParseOptions::default()
+        };
+        let document = parse_with_warnings(&source, &options).0;
+        let shown = format!("{:?}", document.blocks);
+        // With the tags hidden, a block of source that starts with
+        // `<summary>` is one that is source as written.
+        prop_assume!(!shown.contains("Html(\"<summary"));
+        // And so is a document that has code in it: an indented line is a
+        // code block, whose text is no tag.
+        prop_assume!(!shown.contains("CodeBlock"));
+        for name in [
+            "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
+        ] {
+            for end in [false, true] {
+                prop_assert_eq!(
+                    count_tags(&shown, name, end),
+                    0,
+                    "{} of {} shown in {:?}: {}",
+                    if end { "an end tag" } else { "a start tag" },
+                    name,
+                    source,
+                    shown
+                );
+            }
+        }
+        for mark in &marks {
+            prop_assert!(shown.contains(mark.as_str()), "{mark} of {source:?}: {shown}");
+        }
+    }
+
     /// Every tag of a document, broken or not, is read or shown dim, and none
     /// is shown twice or made up.
     ///
@@ -161,7 +214,7 @@ proptest! {
     fn every_tag_of_any_document_is_read_or_shown_and_none_is_made_up(
         (source, _marks) in documents(),
     ) {
-        let document = parse(&source);
+        let document = parse_all(&source);
         let shown = format!("{:?}", document.blocks);
         for name in ["p", "div", "center", "details", "summary", "a", "h1", "img"] {
             for end in [false, true] {

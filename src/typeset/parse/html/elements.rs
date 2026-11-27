@@ -34,6 +34,39 @@ pub enum Level {
     Neither,
 }
 
+/// The level of HTML that a document is read at, which the setting `html`
+/// chooses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HtmlLevel {
+    /// What GitHub shows.
+    #[default]
+    Github,
+    /// All that kiri reads: `<u>` and `<center>` as well.
+    All,
+}
+
+/// What becomes of a tag that has no effect, which the setting `html_tags`
+/// chooses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HtmlTags {
+    /// Shown dim, where it is.
+    #[default]
+    Dim,
+    /// Left out. Source that is shown as written is never left out.
+    Hide,
+}
+
+impl Level {
+    /// Whether an element of this level is read at the level `chosen`.
+    pub fn is_read_at(self, chosen: HtmlLevel) -> bool {
+        match self {
+            Self::Github => true,
+            Self::All => chosen == HtmlLevel::All,
+            Self::Neither => false,
+        }
+    }
+}
+
 /// What an element may hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Holds {
@@ -78,6 +111,13 @@ pub enum Phrase {
     Del,
     Code,
     U,
+    /// `<span>`: it draws nothing of its own, so what it holds is read as if
+    /// its tags were not there.
+    Span,
+    /// `<ins>`: inserted text, underlined as a browser draws it.
+    Ins,
+    /// `<strike>`: struck through, as `<s>` and `<del>` are.
+    Strike,
     /// `<picture>`: what it holds, which is its `<img>`, without the
     /// `<source>` tags, which a terminal has no use for.
     Picture,
@@ -86,10 +126,12 @@ pub enum Phrase {
 }
 
 impl Phrase {
-    /// The phrase that the element named `name` is, from its row.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match get(name)?.treatment {
-            Treatment::Phrase(phrase) => Some(phrase),
+    /// The phrase that the element named `name` is, from its row, when its
+    /// row is read at the level `level`.
+    pub fn from_name(name: &str, level: HtmlLevel) -> Option<Self> {
+        let row = get(name)?;
+        match row.treatment {
+            Treatment::Phrase(phrase) if row.level.is_read_at(level) => Some(phrase),
             _ => None,
         }
     }
@@ -134,6 +176,13 @@ pub struct Element {
 }
 
 impl Element {
+    /// Whether the level `chosen` is below the one that has this element:
+    /// its tags have no effect. The elements that no level has are not
+    /// beyond it; they are left as source at every level.
+    pub fn is_beyond(&self, chosen: HtmlLevel) -> bool {
+        self.level == Level::All && chosen == HtmlLevel::Github
+    }
+
     /// Whether its start tag `tag` centres what it holds.
     pub(super) fn centres_with(&self, tag: &Tag) -> bool {
         match self.treatment {
@@ -211,7 +260,7 @@ const fn raw(name: &'static str) -> Element {
 /// these, the rows are those that kiri reads, and the rest of the list is
 /// not here yet. The raw-text elements that CommonMark's HTML blocks end
 /// at, `<script>`, `<style>` and `<textarea>`, are rows too, at no level.
-pub static TABLE: [Element; 43] = [
+pub static TABLE: [Element; 46] = [
     Element {
         end_optional: true,
         ended_by: EndedBy::AnyBlock,
@@ -285,6 +334,9 @@ pub static TABLE: [Element; 43] = [
     phrase("del", Level::Github, Phrase::Del),
     phrase("code", Level::Github, Phrase::Code),
     phrase("u", Level::All, Phrase::U),
+    phrase("span", Level::Github, Phrase::Span),
+    phrase("ins", Level::Github, Phrase::Ins),
+    phrase("strike", Level::Github, Phrase::Strike),
     phrase("a", Level::Github, Phrase::A),
     row(
         "br",
@@ -415,7 +467,7 @@ mod tests {
             names(|row| matches!(row.treatment, Treatment::Phrase(_))),
             [
                 "kbd", "mark", "sub", "sup", "b", "strong", "i", "em", "s", "del", "code", "u",
-                "a", "picture"
+                "span", "ins", "strike", "a", "picture"
             ]
         );
         // The block elements left as source for now.

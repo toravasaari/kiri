@@ -119,7 +119,8 @@ Body of the details.
 
 ## Other tags
 
-Text with <span>a span</span> and <abbr>an abbreviation</abbr> stays as source.
+Text with <span>a span</span>, which draws nothing of its own, and
+<abbr>an abbreviation</abbr>, whose tags stay as source.
 
 <div>
 A div block stays as source.

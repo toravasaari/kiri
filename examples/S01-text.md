@@ -124,8 +124,10 @@ echo ":rocket:"
 
 ## HTML tags
 
-A few HTML tags are drawn as GitHub shows them. Others, such as `<span>`,
-stay as source in a muted colour.
+A few HTML tags are drawn as GitHub shows them. Others, such as `<abbr>`,
+stay as source in a muted colour. A `<span>` draws nothing of its own, so
+what is in it is read as if its tags were not there: a <span>span, with
+**bold**</span> in a line.
 
 ### Line breaks
 
@@ -140,12 +142,14 @@ move on. A `<kbd>` looks like inline code.
 ### Bold, italic and code
 
 Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
-<em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
-<code>code</code> in running text look like their Markdown forms, and they
-nest, as in <b><i>bold italic</i></b>. These stay as source in the muted
-colour: a tag that never closes, as in <b>this one, the tags of a `<code>`
-with other tags inside, as in <code>a <b>b</b></code>, and `<u>`:
-<u>underlined</u>.
+<em>emphasis</em>, <s>struck</s>, <strike>crossed</strike> and
+<del>deleted</del> words, and <code>code</code> in running text look like
+their Markdown forms, and they nest, as in <b><i>bold italic</i></b>. An
+<ins>inserted</ins> word is underlined, as a browser draws it. These stay as
+source in the muted colour: a tag that never closes, as in <b>this one, the
+tags of a `<code>` with other tags inside, as in <code>a <b>b</b></code>, and
+`<u>`, which GitHub does not show: <u>underlined</u>. With `html = "all"` in
+the `[markdown]` table of the configuration file, the `<u>` is underlined.
 
 ### Entities
 
@@ -175,7 +179,10 @@ except that `align="center"` centres the heading. A `<h7>` stays as source.
 A title and a row of links in a `<div align="center">`, `<p align="center">`
 or `<center>` are drawn in the middle of the line, as a README shows its head.
 A list, a quote or a table in such a wrapper is drawn where it is, not
-centred.
+centred. GitHub does not show `<center>`, so at the default level its two
+tags show in the muted colour and what is in it is not centred; the
+`<center>` examples below are centred with `html = "all"` in the `[markdown]`
+table of the configuration file.
 
 <div align="center">
   <h3>A centred title</h3>
@@ -222,7 +229,7 @@ The details and what it holds are not centred.
 </details>
 
 A `<center>` in a `<center>`, with text beside its start tag, is read as a
-browser reads it: all three lines below are centred.
+browser reads it: with `html = "all"` all three lines below are centred.
 
 <center>
 
@@ -275,6 +282,21 @@ inside a details:
 <summary>Never closed</summary>
 
 A paragraph after it, at the left.
+
+### Tags with no effect
+
+A tag that kiri does not know, such as `<abbr>`, and one that is outside the
+level, such as `<center>` at the default level, show in the muted colour,
+and what they hold is read as if they were not there: in this line the
+<abbr title="Hypertext Markup Language">HTML</abbr> shows its two tags muted
+and the word between them as the text round it. A stray end tag between
+blocks is a muted line of its own:
+
+</div>
+
+With `html_tags = "hide"` in the `[markdown]` table of the configuration
+file the tags are left out, and so is the muted line above. Source that
+kiri shows as written, such as a `<table>`, is never left out.
 
 ### Sub and sup
 

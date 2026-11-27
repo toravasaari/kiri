@@ -16,12 +16,65 @@ pub struct Row {
     pub blocks: &'static str,
 }
 
-/// Every row reads as its blocks.
+/// Every row reads as its blocks, at the level "all".
 #[test]
 fn every_row_of_the_table_reads_as_its_blocks() {
-    let differ: Vec<String> = (rows::ROWS.iter())
+    check(rows::ROWS, HtmlLevel::All, HtmlTags::Dim);
+}
+
+/// Every row of what GitHub's level changes reads as its blocks there.
+#[test]
+fn every_row_of_githubs_level_reads_as_its_blocks() {
+    check(rows::GITHUB_ROWS, HtmlLevel::Github, HtmlTags::Dim);
+}
+
+/// Every row of what `html_tags = "hide"` changes reads as its blocks, at
+/// the default level and at "all".
+#[test]
+fn every_row_of_hidden_tags_reads_as_its_blocks() {
+    check(rows::HIDE_ROWS, HtmlLevel::Github, HtmlTags::Hide);
+}
+
+/// The same rows at the level "all", where `<u>` and `<center>` are not
+/// tags with no effect: the rows that say so are in `HIDE_ROWS_ALL`.
+#[test]
+fn every_row_of_hidden_tags_at_all_reads_as_its_blocks() {
+    check(rows::HIDE_ROWS_ALL, HtmlLevel::All, HtmlTags::Hide);
+}
+
+/// The default level is GitHub's: `<u>` and `<center>` are dim tags at it,
+/// and read as they were at "all".
+#[test]
+fn the_default_level_is_githubs() {
+    assert_eq!(HtmlLevel::default(), HtmlLevel::Github);
+    assert_eq!(ParseOptions::default().html, HtmlLevel::Github);
+    let source = "<center>Text</center>\n\nA <u>b</u> c\n";
+    let blocks = |options: &ParseOptions| parse_with_warnings(source, options).0.blocks;
+    assert_eq!(blocks(&ParseOptions::default()), parse(source).blocks);
+    let all = ParseOptions {
+        html: HtmlLevel::All,
+        ..ParseOptions::default()
+    };
+    assert_ne!(blocks(&all), parse(source).blocks);
+    // Dim, at the default level: the tags are the same text, and no more.
+    let text = format!("{:?}", parse(source).blocks);
+    assert!(
+        text.contains("Html(\"<center>\")") && !text.contains("Underline"),
+        "{text}"
+    );
+}
+
+/// Each row of `table` reads as its blocks at `level`, and each name is
+/// there once.
+fn check(table: &[Row], html: HtmlLevel, html_tags: HtmlTags) {
+    let options = ParseOptions {
+        html,
+        html_tags,
+        ..ParseOptions::default()
+    };
+    let differ: Vec<String> = (table.iter())
         .filter_map(|row| {
-            let (expected, found) = (dedent(row.blocks), outline(row.source));
+            let (expected, found) = (dedent(row.blocks), outline_with(row.source, &options));
             (found != expected).then(|| {
                 format!(
                     "{}\n{:?}\nexpected:\n{expected}found:\n{found}",
@@ -34,13 +87,12 @@ fn every_row_of_the_table_reads_as_its_blocks() {
         differ.is_empty(),
         "{} of {} rows differ:\n\n{}",
         differ.len(),
-        rows::ROWS.len(),
+        table.len(),
         differ.join("\n")
     );
-    // Each name once.
-    for (at, row) in rows::ROWS.iter().enumerate() {
+    for (at, row) in table.iter().enumerate() {
         assert!(
-            rows::ROWS[..at].iter().all(|other| other.name != row.name),
+            table[..at].iter().all(|other| other.name != row.name),
             "{} twice",
             row.name
         );
@@ -127,8 +179,20 @@ fn dedent(text: &str) -> String {
 /// The blocks of `source` as `parse` reads it, one line each, indented
 /// under the block they are in, each with its place: `@` the line, `=`
 /// for exact bytes or `~` for bytes of a larger piece, and the bytes.
+///
+/// The rows of the table are read at the level "all"; `outline_with` reads
+/// with other options.
 fn outline(source: &str) -> String {
-    let document = parse(source);
+    let options = ParseOptions {
+        html: HtmlLevel::All,
+        ..ParseOptions::default()
+    };
+    outline_with(source, &options)
+}
+
+/// The outline of `source` read with `options`.
+fn outline_with(source: &str, options: &ParseOptions) -> String {
+    let document = parse_with_warnings(source, options).0;
     let mut out = String::new();
     write_blocks(&document, &document.blocks, &mut Vec::new(), 0, &mut out);
     out
@@ -208,6 +272,8 @@ fn words(inlines: &[Inline]) -> String {
             Inline::LineBreak => "<br>".to_owned(),
             Inline::SoftBreak => " ".to_owned(),
             Inline::Html(html) => html.clone(),
+            Inline::Underline(inner) => format!("[u]{}[/u]", words(inner)),
+            Inline::Strikethrough(inner) => format!("~~{}~~", words(inner)),
             other => format!("{other:?}"),
         })
         .collect()

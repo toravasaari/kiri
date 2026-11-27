@@ -187,12 +187,12 @@ fn keeps_other_html_as_source() {
     // `<p>Text <img src=a.png></p>` was here: it is a paragraph since the
     // tree of HTML (P1, a row of `html/tests/rows.rs`).
     assert_eq!(
-        parse("Text <span>bold</span>\n").blocks,
+        parse("Text <abbr>bold</abbr>\n").blocks,
         vec![Block::Paragraph(vec![
             text("Text "),
-            Inline::Html("<span>".into()),
+            Inline::Html("<abbr>".into()),
             text("bold"),
-            Inline::Html("</span>".into()),
+            Inline::Html("</abbr>".into()),
         ])]
     );
 }
@@ -1365,7 +1365,7 @@ fn every_block_of_a_fixture_or_an_example_has_its_place_on_its_source() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#117 (paragraph)",
+        "S01-text.md#131 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (
@@ -1590,8 +1590,23 @@ fn an_html_link_around_text_is_a_link_and_u_is_underlined_text() {
             text(" now"),
         ]
     );
+    // `<u>` is a phrase at the level "all" only: at GitHub's, which is the
+    // default, its tags stay.
     assert_eq!(
         inlines_of("a <u>b</u> c\n"),
+        vec![
+            text("a "),
+            Inline::Html("<u>".into()),
+            text("b"),
+            Inline::Html("</u>".into()),
+            text(" c"),
+        ]
+    );
+    assert_eq!(
+        match parse_all("a <u>b</u> c\n").blocks.as_slice() {
+            [Block::Paragraph(inlines)] => inlines.clone(),
+            blocks => panic!("not one paragraph: {blocks:?}"),
+        },
         vec![text("a "), Inline::Underline(vec![text("b")]), text(" c")]
     );
 }

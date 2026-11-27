@@ -6,7 +6,7 @@
 //! remembered by its element, so that its end tag finds it, or finds that
 //! there is none, without a look at the inlines before it.
 
-use super::elements::Phrase;
+use super::elements::{HtmlLevel, HtmlTags, Phrase};
 use super::{Img, Tag, Token, collapse_whitespace, decode_entities, img, tag_ids, tokens};
 use crate::typeset::model::{Image, Inline};
 
@@ -37,22 +37,23 @@ pub(super) enum Shape {
     Other,
 }
 
-/// The shape of the inline HTML `html`: one tag, or else `Other`.
-pub(super) fn read_tag(html: &str) -> Shape {
+/// The shape of the inline HTML `html`: one tag, or else `Other`; a tag of a
+/// phrase that `level` does not read is `Other`.
+pub(super) fn read_tag(html: &str, level: HtmlLevel) -> Shape {
     let Some(tokens) = tokens(html) else {
         return Shape::Other;
     };
     match tokens.as_slice() {
-        [Token::Open(tag)] => shape(tag, false),
-        [Token::Close(name)] => Phrase::from_name(name).map_or(Shape::Other, Shape::End),
+        [Token::Open(tag)] => shape(tag, false, level),
+        [Token::Close(name)] => Phrase::from_name(name, level).map_or(Shape::Other, Shape::End),
         _ => Shape::Other,
     }
 }
 
 /// The shape of a tag as it was read: a start tag, or an end tag when `end`.
-pub(super) fn shape(tag: &Tag, end: bool) -> Shape {
+pub(super) fn shape(tag: &Tag, end: bool, level: HtmlLevel) -> Shape {
     if end {
-        return Phrase::from_name(&tag.name).map_or(Shape::Other, Shape::End);
+        return Phrase::from_name(&tag.name, level).map_or(Shape::Other, Shape::End);
     }
     match tag.name.as_str() {
         "br" => Shape::Break,
@@ -62,7 +63,7 @@ pub(super) fn shape(tag: &Tag, end: bool) -> Shape {
             href: tag.get("href").map(str::to_owned),
             ids: tag_ids(tag),
         },
-        name => Phrase::from_name(name).map_or(Shape::Other, |phrase| Shape::Start {
+        name => Phrase::from_name(name, level).map_or(Shape::Other, |phrase| Shape::Start {
             phrase,
             href: None,
             ids: Vec::new(),
@@ -86,6 +87,10 @@ struct Start {
 /// link before it: that one makes no link, only the places it names.
 #[derive(Default)]
 pub struct Joined {
+    /// The level of HTML that is read.
+    level: HtmlLevel,
+    /// What becomes of the tags that have no effect.
+    tags: HtmlTags,
     inlines: Vec<Inline>,
     /// The start tags still open, a stack for each phrase.
     open: [Vec<Start>; PHRASES],
@@ -94,11 +99,21 @@ pub struct Joined {
 }
 
 impl Joined {
+    /// An empty join that reads the tags that `level` has, and shows the
+    /// ones with no effect as `tags` says.
+    pub fn new(level: HtmlLevel, tags: HtmlTags) -> Self {
+        Self {
+            level,
+            tags,
+            ..Self::default()
+        }
+    }
+
     /// Adds `inline`: a tag of inline HTML may start or end an element.
     pub fn push(&mut self, inline: Inline) {
         match inline {
             Inline::Html(tag) => {
-                let shape = read_tag(&tag);
+                let shape = read_tag(&tag, self.level);
                 self.push_tag(tag, shape);
             }
             inline => self.inlines.push(inline),
@@ -116,7 +131,7 @@ impl Joined {
     /// Adds one tag of inline HTML: a line break, an image, or else the
     /// tag, which may start or end an element.
     pub fn push_html(&mut self, tag: String) {
-        let shape = read_tag(&tag);
+        let shape = read_tag(&tag, self.level);
         self.push_shaped(tag, shape);
     }
 
@@ -129,9 +144,20 @@ impl Joined {
         }
     }
 
-    /// The inlines, with the start tags that nothing ended as they are.
+    /// The inlines, with the start tags that nothing ended as they are, or
+    /// left out when the tags with no effect are hidden.
     pub fn into_inlines(self) -> Vec<Inline> {
-        self.inlines
+        self.finish(false)
+    }
+
+    /// The inlines as [`Joined::into_inlines`] gives them. Where a tag that
+    /// is left out sat between two spaces, they are one when `collapse`.
+    fn finish(self, collapse: bool) -> Vec<Inline> {
+        let mut inlines = self.inlines;
+        if self.tags == HtmlTags::Hide {
+            hide_tags(&mut inlines, collapse);
+        }
+        inlines
     }
 
     fn push_tag(&mut self, tag: String, shape: Shape) {
@@ -191,16 +217,21 @@ impl Joined {
             return named_link(&mut self.inlines, start.ids, start.href, content);
         }
         self.forget_from(start.at);
+        // A `<span>` is transparent: what it holds takes its place.
+        if phrase == Phrase::Span {
+            self.inlines.extend(content);
+            return;
+        }
         self.inlines.push(match phrase {
-            Phrase::A | Phrase::Picture => unreachable!("made above"),
-            Phrase::U => Inline::Underline(content),
+            Phrase::A | Phrase::Picture | Phrase::Span => unreachable!("made above"),
+            Phrase::U | Phrase::Ins => Inline::Underline(content),
             Phrase::Kbd => Inline::Kbd(content),
             Phrase::Mark => Inline::Mark(content),
             Phrase::Sub => Inline::Subscript(content),
             Phrase::Sup => Inline::Superscript(content),
             Phrase::B | Phrase::Strong => Inline::Strong(content),
             Phrase::I | Phrase::Em => Inline::Emphasis(content),
-            Phrase::S | Phrase::Del => Inline::Strikethrough(content),
+            Phrase::S | Phrase::Del | Phrase::Strike => Inline::Strikethrough(content),
             Phrase::Code => Inline::Code(code),
         });
     }
@@ -225,6 +256,48 @@ impl Joined {
                 self.depth -= 1;
             }
         }
+    }
+}
+
+/// Whether `html` is one start tag, one end tag or one comment: not a
+/// declaration or source that is shown as written.
+pub(super) fn is_tag(html: &str) -> bool {
+    matches!(
+        tokens(html).as_deref(),
+        Some([Token::Open(_) | Token::Close(_) | Token::Comment])
+    )
+}
+
+/// Leaves the tags and comments out of `inlines` and of what is in them, and joins the
+/// text that is left side by side. Where two spaces meet at the join, one is
+/// left when `collapse`, as a browser shows them.
+fn hide_tags(inlines: &mut Vec<Inline>, collapse: bool) {
+    let before = std::mem::take(inlines);
+    for mut inline in before {
+        match &mut inline {
+            Inline::Html(html) if is_tag(html) => continue,
+            Inline::Text(text) => {
+                if let Some(Inline::Text(last)) = inlines.last_mut() {
+                    let trimmed = match collapse && last.ends_with(' ') {
+                        true => text.trim_start_matches(' '),
+                        false => text,
+                    };
+                    last.push_str(trimmed);
+                    continue;
+                }
+            }
+            Inline::Emphasis(inner)
+            | Inline::Strong(inner)
+            | Inline::Strikethrough(inner)
+            | Inline::Kbd(inner)
+            | Inline::Mark(inner)
+            | Inline::Subscript(inner)
+            | Inline::Superscript(inner)
+            | Inline::Underline(inner)
+            | Inline::Link { content: inner, .. } => hide_tags(inner, collapse),
+            _ => {}
+        }
+        inlines.push(inline);
     }
 }
 
@@ -261,8 +334,8 @@ fn named_link(
 
 /// Text and inline HTML, as `html` gives the content of a `<summary>`,
 /// with the tags kiri reads read.
-pub fn html_inlines(content: Vec<Inline>) -> Vec<Inline> {
-    let mut joined = Joined::default();
+pub fn html_inlines(content: Vec<Inline>, level: HtmlLevel, tags: HtmlTags) -> Vec<Inline> {
+    let mut joined = Joined::new(level, tags);
     for inline in content {
         match inline {
             Inline::Html(tag) => joined.push_html(tag),
@@ -306,7 +379,11 @@ enum Item {
 /// start of a line after a `<br>` or at its end before one, where a browser
 /// shows none; and the tags kiri reads in text joined into the elements they
 /// make. Each tag is read once, by the tree.
-pub fn run_inlines<'a>(leaves: impl IntoIterator<Item = Leaf<'a>>) -> Vec<Inline> {
+pub fn run_inlines<'a>(
+    leaves: impl IntoIterator<Item = Leaf<'a>>,
+    level: HtmlLevel,
+    tags: HtmlTags,
+) -> Vec<Inline> {
     let mut items: Vec<Item> = Vec::new();
     for leaf in leaves {
         match leaf {
@@ -327,7 +404,7 @@ pub fn run_inlines<'a>(leaves: impl IntoIterator<Item = Leaf<'a>>) -> Vec<Inline
             }
             Leaf::Comment => {}
             Leaf::Tag(written, tag, end) => {
-                items.push(Item::Tag(written.to_owned(), shape(tag, end)))
+                items.push(Item::Tag(written.to_owned(), shape(tag, end, level)))
             }
             Leaf::Source(written) => items.push(Item::Tag(written.to_owned(), Shape::Other)),
         }
@@ -351,7 +428,7 @@ pub fn run_inlines<'a>(leaves: impl IntoIterator<Item = Leaf<'a>>) -> Vec<Inline
             *text = text.trim_end_matches(blank).to_owned();
         }
     }
-    let mut joined = Joined::default();
+    let mut joined = Joined::new(level, tags);
     for item in items {
         match item {
             Item::Text(text) if text.is_empty() => {}
@@ -359,7 +436,7 @@ pub fn run_inlines<'a>(leaves: impl IntoIterator<Item = Leaf<'a>>) -> Vec<Inline
             Item::Tag(written, shape) => joined.push_shaped(written, shape),
         }
     }
-    let mut inlines = joined.into_inlines();
+    let mut inlines = joined.finish(true);
     trim_edge(&mut inlines, true);
     trim_edge(&mut inlines, false);
     inlines

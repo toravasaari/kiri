@@ -188,14 +188,14 @@ pub const ROWS: &[Row] = &[
               html "<ul><li>x</li></ul>" @2~0..47
         "#,
     },
-    // P2, read by the tree: a centred div holds text with an unknown span,
-    // which it may: centred, the span tags dim.
+    // A centred div holds text with a span, which it may: centred, and the
+    // span transparent (before the row of `<span>`, its tags were dim).
     Row {
-        name: "a span in a one-block wrapper is text with its tags dim, centred",
+        name: "a span in a one-block wrapper is transparent, its text centred",
         source: "<div align=\"center\">\n<span>x</span>\n</div>\n",
         blocks: r#"
             centred @1=0..42
-              p "<span>x</span>" @2~0..42
+              p "x" @2~0..42
         "#,
     },
     // P2, read by the tree: a centred div holds a heading and a quote, which it
@@ -228,14 +228,14 @@ pub const ROWS: &[Row] = &[
               h1 "a <foo>b</foo>" @1~0..40
         "#,
     },
-    // P2, read by the tree: a centred heading may hold an unknown span: read
-    // and centred.
+    // A centred heading holds a span: read and centred, the span transparent
+    // (before the row of `<span>`, its tags were dim).
     Row {
         name: "a centred heading with a span is read and centred",
         source: "<h1 align=\"center\">a <span>b</span></h1>\n",
         blocks: r#"
             centred @1=0..40
-              h1 "a <span>b</span>" @1~0..40
+              h1 "a b" @1~0..40
         "#,
     },
     // P1, read by the tree: an empty centred div draws nothing.
@@ -1156,7 +1156,9 @@ pub const ROWS: &[Row] = &[
         blocks: r#"
             quote @1=0..55
               html "<details>" @1~2..47
-              html "<summary>S</summary>" @2~2..47
+              html "<summary>" @2~2..47
+              p "S" @2~2..47
+              html "</summary>" @2~2..47
               p "More text." @3~2..47
               p "In." @5=52..55
             p "Out." @7=57..61
@@ -1280,7 +1282,9 @@ pub const ROWS: &[Row] = &[
         source: "<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n",
         blocks: r#"
             html "<details>" @1~0..30
-            html "<summary>S</summary>\n" @2~0..30
+            html "<summary>" @2~0..30
+            p "S" @2~0..30
+            html "</summary>\n" @2~0..30
             p "first" @4=32..37
             p "second" @6=39..45
         "#,
@@ -1291,7 +1295,9 @@ pub const ROWS: &[Row] = &[
         source: "<details>\n<summary>S</summary>\n",
         blocks: r#"
             html "<details>" @1~0..30
-            html "<summary>S</summary>\n" @2~0..30
+            html "<summary>" @2~0..30
+            p "S" @2~0..30
+            html "</summary>\n" @2~0..30
         "#,
     },
     Row {
@@ -1393,28 +1399,34 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a summary outside a details stays source",
+        name: "a summary outside a details has no effect: dim tags, its text a paragraph",
         source: "<summary>S</summary>\n\nText.\n",
         blocks: r#"
-            html "<summary>S</summary>\n" @1=0..20
+            html "<summary>" @1~0..20
+            p "S" @1~0..20
+            html "</summary>\n" @1~0..20
             p "Text." @3=22..27
         "#,
     },
     Row {
-        name: "a second summary stays source",
+        name: "a second summary has no effect: dim tags, its text a paragraph",
         source: "<details>\n<summary>A</summary>\n\n<summary>B</summary>\n\nText.\n\n</details>\n",
         blocks: r#"
             details "A" @1=0..71
-              html "<summary>B</summary>\n" @4=32..52
+              html "<summary>" @4~32..52
+              p "B" @4~32..52
+              html "</summary>\n" @4~32..52
               p "Text." @6=54..59
         "#,
     },
     Row {
-        name: "a summary after a first one set apart stays source",
+        name: "a summary after a first one set apart has no effect: dim tags, its text a paragraph",
         source: "<details>\n\n<summary>A</summary>\n\n<summary>B</summary>\n\n</details>\n",
         blocks: r#"
             details "A" @1=0..65
-              html "<summary>B</summary>\n" @5=33..53
+              html "<summary>" @5~33..53
+              p "B" @5~33..53
+              html "</summary>\n" @5~33..53
         "#,
     },
     // P2, read by the tree: a summary never closed is broken: its tag is dim,
@@ -1495,14 +1507,14 @@ pub const ROWS: &[Row] = &[
               html "</div>" @6~38..55
         "#,
     },
-    // P2, read by the tree: a details body may hold text with an unknown span:
-    // read, the span tags dim.
+    // P2, read by the tree: a details body may hold text with an unknown
+    // element: read, its tags dim.
     Row {
-        name: "a details body of text and an unknown span is a paragraph",
-        source: "<details><summary>s</summary><span>x</span> hello <b>bold</b></details>\n",
+        name: "a details body of text and an unknown abbr is a paragraph",
+        source: "<details><summary>s</summary><abbr>x</abbr> hello <b>bold</b></details>\n",
         blocks: r#"
             details "s" @1=0..71
-              p "<span>x</span> hello **bold**" @1~0..71
+              p "<abbr>x</abbr> hello **bold**" @1~0..71
         "#,
     },
     // P1, read by the tree: the plain p is a paragraph (and the details, not
@@ -2161,6 +2173,357 @@ pub const ROWS: &[Row] = &[
             centred @1=0..78
               p "![A](a.png)" @3=20..45
               p "![B](b.png)" @5=47..72
+        "#,
+    },
+    // `<span>` draws nothing of its own: transparent, as a plain `<div>`.
+    Row {
+        name: "a span in a paragraph is transparent: what it holds is read as it is",
+        source: "Text <span>**bold**</span> more\n",
+        blocks: r#"
+            p "Text **bold** more" @1=0..31
+        "#,
+    },
+    Row {
+        name: "a span in an HTML block is transparent",
+        source: "<p>A <span class=\"x\">b <i>c</i></span> d</p>\n",
+        blocks: r#"
+            p "A b *c* d" @1=0..44
+        "#,
+    },
+    Row {
+        name: "a span never closed stays a dim tag in its text",
+        source: "Text <span>bold\n",
+        blocks: r#"
+            p "Text <span>bold" @1=0..15
+        "#,
+    },
+    Row {
+        name: "a span in a span is transparent twice",
+        source: "<span>a <span>b</span> c</span>\n",
+        blocks: r#"
+            p "a b c" @1=0..31
+        "#,
+    },
+    // `<ins>` is underlined, at both levels (GitHub's list has it).
+    Row {
+        name: "an ins in a paragraph is underlined",
+        source: "A <ins>b</ins> c\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..16
+        "#,
+    },
+    Row {
+        name: "an ins in an HTML block is underlined",
+        source: "<p>A <ins>b</ins> c</p>\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..23
+        "#,
+    },
+    Row {
+        name: "an ins never closed stays a dim tag in its text",
+        source: "A <ins>b\n",
+        blocks: r#"
+            p "A <ins>b" @1=0..8
+        "#,
+    },
+    // `<strike>` is struck through, at both levels (GitHub's list has it).
+    Row {
+        name: "a strike in a paragraph is struck through",
+        source: "A <strike>b</strike> c\n",
+        blocks: r#"
+            p "A ~~b~~ c" @1=0..22
+        "#,
+    },
+    Row {
+        name: "a strike in an HTML block is struck through, as s and del are",
+        source: "<p>A <strike>b</strike> <s>c</s> <del>d</del></p>\n",
+        blocks: r#"
+            p "A ~~b~~ ~~c~~ ~~d~~" @1=0..49
+        "#,
+    },
+    // A tag with nothing to show, after the summary of a details, is its own
+    // block; the summary is not part of it.
+    Row {
+        name: "a dim tag after a details summary is shown once, apart from the summary",
+        source: "<details><!-- c --><summary>S</summary><span></details>\n",
+        blocks: r#"
+            details "S" @1=0..55
+              html "<span>" @1~0..55
+        "#,
+    },
+    // A summary outside a details has no effect: its tags are dim and its
+    // text is read on its own.
+    Row {
+        name: "a summary outside a details is a tag with no effect: dim tags, its text a paragraph",
+        source: "<summary>S</summary>\n",
+        blocks: r#"
+            html "<summary>" @1~0..20
+            p "S" @1~0..20
+            html "</summary>\n" @1~0..20
+        "#,
+    },
+    // The level: `<u>` is a phrase at "all" only (GitHub's level has the
+    // same two rows in `GITHUB_ROWS`).
+    Row {
+        name: "u is a phrase at the level all",
+        source: "A <u>b</u> c\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..12
+        "#,
+    },
+    Row {
+        name: "u in an HTML block is a phrase at the level all",
+        source: "<p>A <u>b</u> c</p>\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..19
+        "#,
+    },
+];
+
+/// What GitHub's level reads differently from the level "all": the tags
+/// that only "all" reads are dim tags, and what they hold is read on its
+/// own. The rows of `ROWS` that this list does not repeat read the same at
+/// both levels.
+pub const GITHUB_ROWS: &[Row] = &[
+    Row {
+        name: "an ins is underlined at GitHub's level too",
+        source: "A <ins>b</ins> c\n",
+        blocks: r#"
+            p "A [u]b[/u] c" @1=0..16
+        "#,
+    },
+    Row {
+        name: "a span is read at GitHub's level too: transparent",
+        source: "Text <span>bold</span> more\n",
+        blocks: r#"
+            p "Text bold more" @1=0..27
+        "#,
+    },
+    Row {
+        name: "center is no wrapper at GitHub's level: its tags are dim",
+        source: "<center>Text</center>\n",
+        blocks: r#"
+            html "<center>" @1~0..21
+            p "Text" @1~0..21
+            html "</center>\n" @1~0..21
+        "#,
+    },
+    Row {
+        name: "u is no phrase at GitHub's level: its tags stay in the paragraph",
+        source: "A <u>b</u> c\n",
+        blocks: r#"
+            p "A <u>b</u> c" @1=0..12
+        "#,
+    },
+    Row {
+        name: "u in an HTML block is no phrase at GitHub's level",
+        source: "<p>A <u>b</u> c</p>\n",
+        blocks: r#"
+            p "A <u>b</u> c" @1=0..19
+        "#,
+    },
+];
+
+/// What `html_tags = "hide"` changes, at GitHub's level: the tags that have
+/// no effect are left out, in a block of their own and in text. Source that
+/// is shown as written stays: a block that is source for now, a comment
+/// alone, and what the tokenizer cannot read.
+pub const HIDE_ROWS: &[Row] = &[
+    Row {
+        name: "a dim tag between blocks is left out",
+        source: "Text\n\n</div>\n\nMore\n",
+        blocks: r#"
+            p "Text" @1=0..4
+            p "More" @5=14..18
+        "#,
+    },
+    Row {
+        name: "a start tag that nothing ends is left out",
+        source: "<div align=\"center\">\n\nText\n",
+        blocks: r#"
+            p "Text" @3=22..26
+        "#,
+    },
+    Row {
+        name: "the tags of an element that kiri does not know are left out of text",
+        source: "A <abbr>b</abbr> c\n",
+        blocks: r#"
+            p "A b c" @1=0..18
+        "#,
+    },
+    Row {
+        name: "a tag left out between two spaces of an HTML block leaves one",
+        source: "<p>a <abbr> b</abbr></p>\n",
+        blocks: r#"
+            p "a b" @1=0..24
+        "#,
+    },
+    Row {
+        name: "a tag that nothing ends is left out of text",
+        source: "A <b>b c\n",
+        blocks: r#"
+            p "A b c" @1=0..8
+        "#,
+    },
+    Row {
+        name: "an end tag that ends nothing is left out of text",
+        source: "A b</i> c\n",
+        blocks: r#"
+            p "A b c" @1=0..9
+        "#,
+    },
+    Row {
+        name: "the dim tags of a broken heading are left out, its text stays",
+        source: "<h2>T</h3>\n",
+        blocks: r#"
+            p "T" @1~0..10
+        "#,
+    },
+    Row {
+        name: "the tags of center are left out at GitHub's level",
+        source: "<center>Text</center>\n",
+        blocks: r#"
+            p "Text" @1~0..21
+        "#,
+    },
+    Row {
+        name: "a block of tags with nothing to show is left out",
+        source: "<abbr>\n",
+        blocks: "",
+    },
+    Row {
+        name: "a paragraph of tags and nothing else is left out",
+        source: "<abbr><abbr>\n",
+        blocks: "",
+    },
+    // What hiding empties goes with it, if it held something: a heading, a
+    // list item, a quote. A cell stays a cell, and what was empty as written
+    // stays.
+    Row {
+        name: "a heading of nothing but hidden tags is left out",
+        source: "# <abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=10..15
+        "#,
+    },
+    Row {
+        name: "a heading keeps its text when its tags are hidden",
+        source: "# a <abbr>b</abbr>\n",
+        blocks: r#"
+            h1 "a b" @1=0..18
+        "#,
+    },
+    Row {
+        name: "a list item of nothing but hidden tags is left out",
+        source: "- <abbr>\n- b\n",
+        blocks: r#"
+            list @1=0..12
+              item
+                p "b" @2=11..12
+        "#,
+    },
+    Row {
+        name: "a list of items that hiding empties is left out",
+        source: "- <abbr>\n- <i>\n\nAfter\n",
+        blocks: r#"
+            p "After" @4=16..21
+        "#,
+    },
+    Row {
+        name: "a list item that was empty as written stays",
+        source: "- a\n-\n- c\n",
+        blocks: r#"
+            list @1=0..9
+              item
+                p "a" @1=2..3
+              item
+              item
+                p "c" @3=8..9
+        "#,
+    },
+    Row {
+        name: "a quote of nothing but hidden tags is left out",
+        source: "> <abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=10..15
+        "#,
+    },
+    Row {
+        name: "a quote keeps its text when its tags are hidden",
+        source: "> a <abbr>b</abbr>\n",
+        blocks: r#"
+            quote @1=0..18
+              p "a b" @1=2..18
+        "#,
+    },
+    Row {
+        name: "a table cell of nothing but hidden tags stays an empty cell",
+        source: "| a | b |\n|---|---|\n| <abbr> | c |\n",
+        blocks: r#"
+            Table(Table { alignments: [Left, Left], cells: Parsed { header: [[Text("a")], [Text("b")]], rows: [[[], [Text("c")]]] } }) @1=0..34
+        "#,
+    },
+    Row {
+        name: "the text of a link keeps its words when its tags are hidden",
+        source: "[a <abbr>b</abbr>](u)\n",
+        blocks: r#"
+            p "[a b](u)" @1=0..21
+        "#,
+    },
+    Row {
+        name: "a comment in text is left out like a tag",
+        source: "a <!-- c -->b\n",
+        blocks: r#"
+            p "a b" @1=0..13
+        "#,
+    },
+    Row {
+        name: "a loose summary is a tag with no effect: hidden, its text read on its own",
+        source: "<summary>S</summary>\n",
+        blocks: r#"
+            p "S" @1~0..20
+        "#,
+    },
+    Row {
+        name: "a block that is source for now is not hidden",
+        source: "<table><tr><td>x</td></tr></table>\n",
+        blocks: r#"
+            html "<table><tr><td>x</td></tr></table>\n" @1=0..34
+        "#,
+    },
+    Row {
+        name: "a rule in HTML is not hidden",
+        source: "<hr>\n",
+        blocks: r#"
+            html "<hr>\n" @1=0..4
+        "#,
+    },
+    Row {
+        name: "a comment alone is not hidden",
+        source: "<!-- note -->\n",
+        blocks: r#"
+            html "<!-- note -->\n" @1=0..13
+        "#,
+    },
+];
+
+/// What `html_tags = "hide"` changes at the level "all": what that level
+/// reads is read, not hidden, and the tags with no effect are left out as
+/// at GitHub's.
+pub const HIDE_ROWS_ALL: &[Row] = &[
+    Row {
+        name: "center is read at all, not hidden",
+        source: "<center>Text</center>\n",
+        blocks: r#"
+            centred @1=0..21
+              p "Text" @1~0..21
+        "#,
+    },
+    Row {
+        name: "a tag of an unknown element is left out of text at all too",
+        source: "A <abbr>b</abbr> <u>c</u>\n",
+        blocks: r#"
+            p "A b [u]c[/u]" @1=0..25
         "#,
     },
 ];

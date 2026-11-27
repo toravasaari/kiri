@@ -241,8 +241,9 @@ fn written_math(math: &comrak::nodes::NodeMath) -> String {
 
 /// What one tag of inline HTML is in the text, when kiri reads it as it
 /// reads an element: a tag that starts or ends one is no text, a line break
-/// is one, an image is its alt text. Other tags stay as they are.
-fn tag_text(tag: &str, reads: Reads) -> String {
+/// is one, an image is its alt text. Other tags stay as they are, or are
+/// left out when `tags` hides them.
+fn tag_text(tag: &str, reads: Reads, tags: HtmlTags) -> String {
     if html::is_line_break(tag) {
         return if reads == Reads::PlainText { " " } else { "\n" }.to_owned();
     }
@@ -253,7 +254,7 @@ fn tag_text(tag: &str, reads: Reads) -> String {
         || html::phrase_end(tag).is_some()
         || html::link_start(tag).is_some()
         || html::is_link_end(tag);
-    if element {
+    if element || (tags == HtmlTags::Hide && html::is_tag(tag)) {
         String::new()
     } else {
         tag.to_owned()
@@ -263,7 +264,7 @@ fn tag_text(tag: &str, reads: Reads) -> String {
 /// The text of the inline nodes under `container` as the model reads it,
 /// by the rules that `reads` says, and what the container has in it that
 /// kiri reads in a way of its own.
-fn nodes_text(container: Node<'_>, reads: Reads) -> (String, Feature) {
+fn nodes_text(container: Node<'_>, reads: Reads, tags: HtmlTags) -> (String, Feature) {
     let mut text = String::new();
     let mut feature = Feature::Plain;
     for node in container.descendants().skip(1) {
@@ -277,7 +278,7 @@ fn nodes_text(container: Node<'_>, reads: Reads) -> (String, Feature) {
                 Reads::DocumentText => formula_source(&math.literal),
             }),
             NodeValue::HtmlInline(tag) => {
-                text.push_str(&tag_text(tag, reads));
+                text.push_str(&tag_text(tag, reads, tags));
                 if feature == Feature::Plain {
                     feature = Feature::InlineHtml;
                 }
@@ -311,10 +312,15 @@ enum Feature {
 /// a test. If one of these starts to match, or another stops, the test says
 /// so.
 const EXCLUDED: &[(&str, usize)] = &[
-    ("S01-text.md", 142),
+    ("S01-text.md", 144),
     ("html-tags.md", 14),
     ("html-tags.md", 96),
 ];
+
+/// The containers left out of the proof when the tags with no effect are
+/// hidden: the helper here drops every tag, as the model does, so none of
+/// the ones above differs.
+const EXCLUDED_HIDDEN: &[(&str, usize)] = &[];
 
 /// How many containers the fixtures and examples have that are compared, at
 /// the least, so that the proof cannot shrink to nothing.
@@ -326,7 +332,7 @@ const COMPARED_AT_LEAST: usize = 800;
 /// and its line. Only a container with display math or inline HTML may
 /// differ, and it is for [`EXCLUDED`] to name it; a difference in any other
 /// container panics.
-fn count_texts(reads: Reads) -> (usize, Vec<(String, usize)>) {
+fn count_texts(reads: Reads, tags: HtmlTags) -> (usize, Vec<(String, usize)>) {
     let mut compared = 0;
     let mut differ = Vec::new();
     for path in crate::testing::documents() {
@@ -344,8 +350,9 @@ fn count_texts(reads: Reads) -> (usize, Vec<(String, usize)>) {
             ) {
                 continue;
             }
-            let (held, feature) = nodes_text(node, reads);
-            let inlines = inlines(node, &mut Unknown::default());
+            let (held, feature) = nodes_text(node, reads, tags);
+            // At the level "all", which the helpers above read at.
+            let inlines = inlines(node, &mut Unknown::new(HtmlLevel::All, tags));
             let model = match reads {
                 Reads::PlainText => Inline::plain_text(&inlines),
                 Reads::DocumentText => {
@@ -371,24 +378,38 @@ fn count_texts(reads: Reads) -> (usize, Vec<(String, usize)>) {
     (compared, differ)
 }
 
-fn check_texts(reads: Reads) {
-    let (compared, differ) = count_texts(reads);
+fn check_texts(reads: Reads, tags: HtmlTags) {
+    let (compared, differ) = count_texts(reads, tags);
     let differ: Vec<(&str, usize)> = differ
         .iter()
         .map(|(name, line)| (name.as_str(), *line))
         .collect();
-    assert_eq!(differ, EXCLUDED, "the containers left out of the proof");
+    let excluded: &[(&str, usize)] = match tags {
+        HtmlTags::Dim => EXCLUDED,
+        HtmlTags::Hide => EXCLUDED_HIDDEN,
+    };
+    assert_eq!(differ, excluded, "the containers left out of the proof");
     assert!(compared > COMPARED_AT_LEAST, "{compared}");
 }
 
 #[test]
 fn the_texts_of_the_nodes_in_order_are_the_text_of_the_inlines_of_the_model() {
-    check_texts(Reads::PlainText);
+    check_texts(Reads::PlainText, HtmlTags::Dim);
+}
+
+#[test]
+fn the_texts_of_the_nodes_are_the_text_of_the_inlines_with_the_tags_hidden() {
+    check_texts(Reads::PlainText, HtmlTags::Hide);
 }
 
 #[test]
 fn the_texts_of_the_nodes_in_order_are_the_text_the_document_gives_the_block() {
-    check_texts(Reads::DocumentText);
+    check_texts(Reads::DocumentText, HtmlTags::Dim);
+}
+
+#[test]
+fn the_texts_of_the_nodes_are_the_text_the_document_gives_the_block_with_the_tags_hidden() {
+    check_texts(Reads::DocumentText, HtmlTags::Hide);
 }
 
 #[test]

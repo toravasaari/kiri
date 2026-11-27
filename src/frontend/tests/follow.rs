@@ -332,3 +332,32 @@ fn a_search_in_a_followed_csv_keeps_its_match_and_counts_the_rows_that_arrive() 
     );
     assert!(texts[reloaded].contains("kiwi 5"), "{texts:?}");
 }
+
+#[test]
+fn a_reload_reads_the_html_at_the_level_of_the_settings() {
+    // The reload reads the file as opening it does: at GitHub's level a
+    // `<center>` shows as a dim tag, at "all" it centres and shows no tag.
+    let last_frame = |all: bool| {
+        let ran = Sim::new(40, 5)
+            .file("doc.md", "First\n")
+            .follow(Follow::On, FollowJump::First)
+            .settings(move |settings| {
+                if all {
+                    settings.markdown_html = crate::typeset::parse::HtmlLevel::All;
+                }
+            })
+            .write(50, "doc.md", "<center>Centred</center>\n")
+            .keys(3000, "q")
+            .kiri(&["doc.md"])
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        ran.texts().last().expect("a frame").clone()
+    };
+    let github = last_frame(false);
+    assert!(github.contains("<center>"), "{github:?}");
+    let all = last_frame(true);
+    assert!(
+        all.contains("Centred") && !all.contains("<center>"),
+        "{all:?}"
+    );
+}
