@@ -81,6 +81,8 @@ NEXTEST = python3 scripts/slow-tests.py
 # container) in two runs in a row goes on this list by itself, first in it,
 # through $(NEXTEST); commit the change.
 SLOW_TESTS = \
+	typeset::reading::places::tests::the_table_has_the_blocks_of_a_page_in_the_documents_order_and_each_row_is_in_its_block \
+	typeset::wrap::tests::wrapping_text_at_a_fraction_never_overflows \
 	cli_pager::ctrl_c_ends_kiri_at_once_while_the_image_files_are_read_before_the_pager \
 	examples::a_code_block_longer_than_a_stretch_is_laid_out_in_steps_as_it_is_whole \
 	pager::tests::growing::a_followed_file_that_changed_before_its_end_is_laid_out_afresh \
