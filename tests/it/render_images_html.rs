@@ -110,16 +110,17 @@ fn an_img_is_alt_text_without_graphics_or_its_image() {
     }
 }
 
+/// A plain `<p>` is a paragraph (P1 of the tree of HTML): its text and its
+/// image are drawn in one line, and none of its tags show.
 #[test]
-fn html_around_more_than_an_img_stays_source() {
+fn a_plain_p_of_text_and_an_img_is_a_paragraph_of_both() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "<p>Text and <img src=\"p.png\" alt=\"x\"></p>\n";
     let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
-    assert!(sent(&out).is_empty(), "{out:?}");
-    assert!(
-        out.contains("<p>Text and <img src=\"p.png\" alt=\"x\"></p>"),
-        "{out:?}"
-    );
+    assert_eq!(sent(&out).len(), 1, "{out:?}");
+    assert_eq!(drawn(&out), ["⟦row 0: 2 cells⟧"], "{out:?}");
+    assert!(out.contains("Text and "), "{out:?}");
+    assert!(!out.contains("<p>") && !out.contains("<img"), "{out:?}");
 }
 
 #[test]
@@ -127,6 +128,10 @@ fn a_linked_img_is_drawn_but_cannot_be_clicked() {
     for source in [
         "<a href=\"https://example.com\"><img src=\"p.png\" alt=\"linked\"></a>\n",
         "<p align=\"center\">\n  <a href=\"https://example.com\"><img src=\"p.png\"></a>\n</p>\n",
+        // An `id` or a `name` names a place and changes nothing else.
+        "<a id=\"x\" href=\"https://example.com\"><img src=\"p.png\" alt=\"linked\"></a>\n",
+        "<a name=\"x\" href=\"https://example.com\">\n<img src=\"p.png\">\n</a>\n",
+        "<p align=\"center\"><a id=\"x\" href=\"https://example.com\"><img src=\"p.png\"></a></p>\n",
     ] {
         let images = one_image("p.png", quadrants(40, 30));
         let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));

@@ -40,7 +40,8 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   ▼ Written on one line
 
-  The content & its tags are plain text.
+  The content & its tags are read as a
+  paragraph.
 
   ▼ Details
 
@@ -67,7 +68,9 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   ▼ With an HTML paragraph
 
-  The paragraph's text, read as plain text.
+  The paragraph is shown as source, as a `
+
+  ` of its own is.
 
   ▼ Text right after the end
 
@@ -104,7 +107,7 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ### An HTML heading
 
-#### With an `align`, drawn left-aligned
+      #### With an `align`, drawn centred
 
 ## The `kiri` — tool
 
@@ -112,13 +115,18 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ## Other tags
 
-  Text with <span>a span</span> and <u>an
-  underline</u> stays as source.
+  Text with a span, which draws nothing of its
+  own, and <abbr>an abbreviation</abbr>, whose
+  tags stay as source.
 
-  <div>
   A div block stays as source.
-  </div>
 
-  ▼ Never closed
+  <details>
+
+  <summary>
+
+  Never closed
+
+  </summary>
 
   Runs to the end of the document.

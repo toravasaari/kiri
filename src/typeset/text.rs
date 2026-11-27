@@ -140,6 +140,7 @@ pub fn flatten(
             | Inline::Mark(content)
             | Inline::Subscript(content)
             | Inline::Superscript(content)
+            | Inline::Underline(content)
             | Inline::Link { content, .. }
             | Inline::Image(Image { alt: content, .. }) => flatten(content, out, visit),
             Inline::Formula { source, .. } => out.push_str(source),
@@ -164,6 +165,7 @@ pub fn inline_len(inline: &Inline) -> usize {
         | Inline::Mark(content)
         | Inline::Subscript(content)
         | Inline::Superscript(content)
+        | Inline::Underline(content)
         | Inline::Link { content, .. }
         | Inline::Image(Image { alt: content, .. }) => content.iter().map(inline_len).sum(),
         Inline::Formula { source, .. } => source.len(),
@@ -244,6 +246,7 @@ pub fn number(block: &Block, part: Part) -> Option<usize> {
         // A table's texts are its cells, numbered by its grid.
         Block::Table(_)
         | Block::BlockQuote(_)
+        | Block::Centered(_)
         | Block::List(_)
         | Block::ThematicBreak
         | Block::Note(_)
@@ -352,6 +355,7 @@ pub fn pieces_with(
         },
         Block::Alert { title: None, .. }
         | Block::BlockQuote(_)
+        | Block::Centered(_)
         | Block::List(_)
         | Block::ThematicBreak
         | Block::Note(_)

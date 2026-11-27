@@ -425,3 +425,28 @@ fn an_image_drawn_in_a_line_stands_in_the_place_of_its_alt_text() {
     assert!(origin.picture);
     assert_eq!((origin.text, origin.doc.clone()), (0, 7..14));
 }
+
+#[test]
+fn a_tag_in_text_is_drawn_muted_and_the_text_round_it_is_not() {
+    let document = parse("a <abbr>b</abbr> c\n");
+    let stream = content(
+        Content::Document(&document),
+        &inputs(40, FrontMatterStyle::Table),
+    );
+    let spans: Vec<_> = stream.lines.iter().flat_map(|line| &line.spans).collect();
+    let styled = |text: &str| {
+        spans
+            .iter()
+            .find(|span| span.text == text)
+            .unwrap_or_else(|| panic!("no span {text:?} in {spans:?}"))
+            .style
+            .clone()
+    };
+    let plain = styled("a ");
+    assert!(!plain.dim && plain.fg.is_none(), "{plain:?}");
+    for tag in ["<abbr>", "</abbr>"] {
+        let style = styled(tag);
+        assert!(style.dim || style.fg.is_some(), "{tag}: {style:?}");
+    }
+    assert_eq!(styled("b"), plain);
+}

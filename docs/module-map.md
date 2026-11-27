@@ -90,6 +90,7 @@ Document model to styled lines of a fixed width. Tests: `summary.rs`, `tests.rs`
 
 | File | What it does |
 |---|---|
+| [`centred.rs`](../src/typeset/layout/centred.rs) | A centred wrapper such as `<p align="center">` in the cell layout: its paragraphs, headings and pictures centred in its room. |
 | [`code.rs`](../src/typeset/layout/code.rs) | Code blocks and the colours code takes from its highlighting theme. |
 | [`embed.rs`](../src/typeset/layout/embed.rs) | Images and formulas inside running text: made into spans that are the cells of an image, and placed in the lines the wrapper made of them. |
 | [`front_matter.rs`](../src/typeset/layout/front_matter.rs) | Front matter, as a table of its keys and values or as a code block. |
@@ -120,8 +121,17 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 | [`csv.rs`](../src/typeset/parse/csv.rs) | CSV and TSV source to document model: one table, the first row as its header, as GitHub shows such a file. Tests: `grown.rs`, `props.rs`, `tests.rs`. |
 | [`footnotes.rs`](../src/typeset/parse/footnotes.rs) | Footnotes: a reference in the text and the notes after the document, built from the anchors, links and lists that the document model already has. Tests: `tests.rs`. |
 | [`front_matter.rs`](../src/typeset/parse/front_matter.rs) | Front matter: a block of metadata at the very start of a file, between two delimiter lines, as Jekyll, Hugo and GitLab read it. Tests: `tests.rs`. |
-| [`html.rs`](../src/typeset/parse/html.rs) | The few HTML tags in Markdown that kiri reads instead of showing them as source. Tests: `tests.rs`. |
+| [`html.rs`](../src/typeset/parse/html.rs) | The HTML in Markdown: its tokens, attributes and entities, and the tree and the table by which kiri reads it. Tests: `tests.rs`. |
 | [`unknown.rs`](../src/typeset/parse/unknown.rs) | Markdown elements that the parser leaves out of the document. |
+
+### `src/typeset/parse/html/`
+
+| File | What it does |
+|---|---|
+| [`blocks.rs`](../src/typeset/parse/html/blocks.rs) | The tree of the HTML in a container read as the blocks of the model, by the table of elements and the level of HTML. |
+| [`elements.rs`](../src/typeset/parse/html/elements.rs) | The table of HTML elements that kiri knows: one row for each, with its kind, the level of HTML it belongs to, what it holds and how it is treated. |
+| [`inline.rs`](../src/typeset/parse/html/inline.rs) | Tags of HTML in running text joined into the inlines they make. |
+| [`tree.rs`](../src/typeset/parse/html/tree.rs) | The tree of the block elements in the HTML blocks of a document and the Markdown blocks between them, built once from their tokens. Tests: `tests.rs`. |
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)
 
@@ -151,6 +161,7 @@ Reading mode: the document's text laid out in a proportional font and drawn as p
 
 | File | What it does |
 |---|---|
+| [`centred.rs`](../src/typeset/reading/page/centred.rs) | A centred wrapper such as `<p align="center">` in reading mode's page: its paragraphs, headings and pictures centred in its room. |
 | [`code.rs`](../src/typeset/reading/page/code.rs) | Code blocks and diagrams in reading mode's page, and the bands that a long one is cut into. |
 | [`details.rs`](../src/typeset/reading/page/details.rs) | `<details>` blocks and their summary in reading mode's page: the summary, and the blocks under it. |
 | [`front_matter.rs`](../src/typeset/reading/page/front_matter.rs) | Front matter in reading mode's page: its keys and values as a grid, with the source in a code block when it is shown as source. |

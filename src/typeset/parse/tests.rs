@@ -24,6 +24,7 @@ fn parses_headings_and_inline_styles() {
             Block::Heading {
                 level: 1,
                 content: vec![text("Title")],
+                id: None,
             },
             Block::Paragraph(vec![
                 text("Some "),
@@ -53,6 +54,7 @@ fn front_matter_comes_before_the_markdown_after_it() {
             Block::Heading {
                 level: 1,
                 content: vec![text("Body")],
+                id: None,
             },
         ]
     );
@@ -69,10 +71,12 @@ fn front_matter_off_leaves_the_text_to_markdown() {
             Block::Heading {
                 level: 2,
                 content: vec![text("title: A")],
+                id: None,
             },
             Block::Heading {
                 level: 1,
                 content: vec![text("Body")],
+                id: None,
             },
         ]
     );
@@ -112,7 +116,7 @@ fn reads_an_html_img_as_an_image() {
     );
     assert_eq!(
         parse("<p align=\"center\">\n  <img src=\"a.png\" alt=\"An image\">\n</p>\n").blocks,
-        vec![Block::Paragraph(vec![expected()])]
+        vec![Block::Centered(vec![Block::Paragraph(vec![expected()])])]
     );
     assert_eq!(
         parse("Text <img src=\"a.png\" alt=\"An image\"> here.\n").blocks,
@@ -154,15 +158,14 @@ fn reads_an_html_link_around_an_img_as_a_link() {
 }
 
 #[test]
-fn keeps_an_html_link_around_more_than_an_img_as_source() {
+fn an_html_link_around_text_and_an_img_is_a_link_around_both() {
     assert_eq!(
         parse("<a href=x>text <img src=a.png></a>\n").blocks,
-        vec![Block::Paragraph(vec![
-            Inline::Html("<a href=x>".into()),
-            text("text "),
-            image("a.png", Vec::new()),
-            Inline::Html("</a>".into()),
-        ])]
+        vec![Block::Paragraph(vec![Inline::Link {
+            url: "x".into(),
+            title: None,
+            content: vec![text("text "), image("a.png", Vec::new())],
+        }])]
     );
 }
 
@@ -181,17 +184,15 @@ fn an_img_keeps_its_width_and_height() {
 
 #[test]
 fn keeps_other_html_as_source() {
+    // `<p>Text <img src=a.png></p>` was here: it is a paragraph since the
+    // tree of HTML (P1, a row of `html/tests/rows.rs`).
     assert_eq!(
-        parse("<p>Text <img src=a.png></p>\n").blocks,
-        vec![Block::Html("<p>Text <img src=a.png></p>\n".into())]
-    );
-    assert_eq!(
-        parse("Text <span>bold</span>\n").blocks,
+        parse("Text <abbr>bold</abbr>\n").blocks,
         vec![Block::Paragraph(vec![
             text("Text "),
-            Inline::Html("<span>".into()),
+            Inline::Html("<abbr>".into()),
             text("bold"),
-            Inline::Html("</span>".into()),
+            Inline::Html("</abbr>".into()),
         ])]
     );
 }
@@ -335,6 +336,7 @@ fn reads_html_emphasis_tags_in_context() {
         vec![Block::Heading {
             level: 1,
             content: vec![text("a "), Inline::Strong(vec![text("x")])],
+            id: None,
         }]
     );
     assert_eq!(
@@ -441,7 +443,11 @@ fn reads_html_emphasis_tags_in_a_summary() {
 
 /// A heading block of `level` with `content`.
 fn heading(level: u8, content: Vec<Inline>) -> Block {
-    Block::Heading { level, content }
+    Block::Heading {
+        level,
+        content,
+        id: None,
+    }
 }
 
 #[test]
@@ -458,7 +464,11 @@ fn reads_an_html_heading_as_a_heading() {
     );
     assert_eq!(
         parse("<h3 align=\"center\" id=\"x\" class=y>T</h3>\n").blocks,
-        vec![heading(3, vec![text("T")])]
+        vec![Block::Centered(vec![Block::Heading {
+            level: 3,
+            content: vec![text("T")],
+            id: Some("x".into()),
+        }])]
     );
     // A comment around it counts only on the same line: comrak makes one
     // that starts a line a block of its own.
@@ -510,8 +520,7 @@ fn a_comment_in_an_html_heading_leaves_one_space() {
 #[test]
 fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
     assert_eq!(
-        parse("<h1 align=\"center\"><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n")
-            .blocks,
+        parse("<h1><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n").blocks,
         vec![heading(
             1,
             vec![
@@ -529,23 +538,12 @@ fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
 
 #[test]
 fn keeps_other_html_around_a_heading_as_source() {
-    for html in [
-        "<h2>T\n",
-        "<h2>T</h3>\n",
-        "<h2></h2>\n",
-        "<h2>a</h2>\n<h2>b</h2>\n",
-        "<h2>Title\n<h2>Other</h2>\n",
-        "<h1><h2>a</h2></h1>\n",
-        "<h2>a</h2>\ntext after\n",
-        "<h2>a</h2>\n<div>b</div>\n",
-        "<div><h2>a</h2></div>\n",
-        "<h2 title=\"open>a</h2>\n",
-    ] {
-        match parse(html).blocks.as_slice() {
-            [Block::Html(source)] => assert_eq!(source, html),
-            blocks => panic!("{html:?}: {blocks:?}"),
-        }
-    }
+    // The other cases that were here read otherwise since the tree of HTML:
+    // those of P1 and P2 are rows of `html/tests/rows.rs`, and those that
+    // HTML after the heading in its block changes (K5) in
+    // `the_html_after_a_heading_or_a_pre_in_its_block_is_read_after_it`.
+    let html = "<h2 title=\"open>a</h2>\n";
+    assert_eq!(parse(html).blocks, [Block::Html(html.into())]);
     // `<h7>` starts no HTML block for comrak: its tags are inline HTML.
     assert_eq!(
         parse("<h7>T</h7>\n").blocks,
@@ -669,20 +667,19 @@ fn an_html_pre_keeps_its_line() {
 
 #[test]
 fn keeps_other_html_around_a_pre_as_source() {
+    // The cases with HTML after the `</pre>` in its block (K5) and a `<pre>`
+    // never closed (P2, a row of `html/tests/rows.rs`) read otherwise since the
+    // tree of HTML.
     for html in [
         "<pre><span>x</span></pre>\n",
         "<pre><code><span>x</span></code></pre>\n",
-        "<pre>x</pre> trailing text\n",
-        "<pre>x</pre><b>y</b>\n",
         "<pre>x<!-- c --></pre>\n",
-        "<pre>x\n",
         "<pre><code>x</pre>\n",
         "<pre></pre>\n",
         "<pre><code></code></pre>\n",
         "<pre>\n\n</pre>\n",
         "<pre> </pre>\n",
         "<pre><code>\n</code></pre>\n",
-        "<pre>x</pre><pre>y</pre>\n",
         "<pre>a < b</pre>\n",
         "<pre>Vec<T></pre>\n",
         "<pre><code>x</code>y</pre>\n",
@@ -736,11 +733,48 @@ fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
             )],
         }]
     );
-    // Text with other tags among it is still its text.
-    assert_eq!(
-        parse("<details><summary>S</summary><p>a <pre>x</pre></p></details>\n").blocks,
-        parse("<details><summary>S</summary><p>a x</p></details>\n").blocks
-    );
+    // `<p>a <pre>x</pre></p>` in a details was source here; it is read since
+    // the tree of HTML (P1, a row of `html/tests/rows.rs`).
+}
+
+/// HTML after the end tag of a heading or a `<pre>` in its block is read
+/// after it, as a browser reads it (K5, read by the tree of HTML: before it,
+/// the block stayed source).
+#[test]
+fn the_html_after_a_heading_or_a_pre_in_its_block_is_read_after_it() {
+    let code = |code: &str| Block::CodeBlock {
+        language: None,
+        code: code.into(),
+        whole_file: false,
+    };
+    let cases = [
+        (
+            "<h2>a</h2>\n<h2>b</h2>\n",
+            vec![heading(2, vec![text("a")]), heading(2, vec![text("b")])],
+        ),
+        (
+            "<h2>a</h2>\ntext after\n",
+            vec![
+                heading(2, vec![text("a")]),
+                Block::Paragraph(vec![text("text after")]),
+            ],
+        ),
+        (
+            "<pre>x</pre> trailing text\n",
+            vec![code("x\n"), Block::Paragraph(vec![text("trailing text")])],
+        ),
+        (
+            "<pre>x</pre><b>y</b>\n",
+            vec![
+                code("x\n"),
+                Block::Paragraph(vec![Inline::Strong(vec![text("y")])]),
+            ],
+        ),
+        ("<pre>x</pre><pre>y</pre>\n", vec![code("x\n"), code("y\n")]),
+    ];
+    for (html, blocks) in cases {
+        assert_eq!(parse(html).blocks, blocks, "{html:?}");
+    }
 }
 
 #[test]
@@ -779,227 +813,8 @@ fn reads_an_html_sub_and_sup_as_scripts() {
     );
 }
 
-fn details(summary: Vec<Inline>, blocks: Vec<Block>) -> Block {
-    Block::Details { summary, blocks }
-}
-
 fn paragraph(content: &str) -> Block {
     Block::Paragraph(vec![text(content)])
-}
-
-#[test]
-fn joins_a_details_that_blank_lines_split() {
-    let source = "<details>\n<summary>Open <kbd>K</kbd><br>me</summary>\n\n\
-            Some *text*.\n\n- an item\n\n</details>\n\nAfter.\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            details(
-                vec![
-                    text("Open "),
-                    Inline::Kbd(vec![text("K")]),
-                    Inline::LineBreak,
-                    text("me"),
-                ],
-                vec![
-                    Block::Paragraph(vec![
-                        text("Some "),
-                        Inline::Emphasis(vec![text("text")]),
-                        text("."),
-                    ]),
-                    Block::List(List {
-                        start: None,
-                        tight: true,
-                        footnotes: false,
-                        items: vec![ListItem {
-                            checked: None,
-                            blocks: vec![paragraph("an item")],
-                        }],
-                    }),
-                ]
-            ),
-            paragraph("After."),
-        ]
-    );
-}
-
-#[test]
-fn joins_a_details_in_a_list_item_or_a_quote() {
-    let listed = "- Item\n  <details>\n  <summary>S</summary>\n\n  In.\n\n  </details>\n";
-    let Block::List(list) = &parse(listed).blocks[0] else {
-        panic!("expected a list");
-    };
-    assert_eq!(
-        list.items[0].blocks,
-        vec![
-            paragraph("Item"),
-            details(vec![text("S")], vec![paragraph("In.")]),
-        ]
-    );
-    let quoted = "> <details>\n> <summary>S</summary>\n>\n> In.\n>\n> </details>\n";
-    assert_eq!(
-        parse(quoted).blocks,
-        vec![Block::BlockQuote(vec![details(
-            vec![text("S")],
-            vec![paragraph("In.")]
-        )])]
-    );
-}
-
-#[test]
-fn joins_nested_details() {
-    let source = "<details>\n<summary>Out</summary>\n\n<details>\n<summary>In</summary>\n\n\
-            Deep.\n\n</details>\n\nBack.\n\n</details>\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![details(
-            vec![text("Out")],
-            vec![
-                details(vec![text("In")], vec![paragraph("Deep.")]),
-                paragraph("Back."),
-            ]
-        )]
-    );
-}
-
-#[test]
-fn joins_nested_details_that_no_blank_line_splits() {
-    let source = "<details>\n<summary>Out</summary>\n<details>\n<summary>In</summary>\n\n\
-            Deep.\n\n</details>\n\nBack.\n\n</details>\n\nAfter.\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            details(
-                vec![text("Out")],
-                vec![
-                    details(vec![text("In")], vec![paragraph("Deep.")]),
-                    paragraph("Back."),
-                ]
-            ),
-            paragraph("After."),
-        ]
-    );
-}
-
-#[test]
-fn reads_the_html_that_shares_a_block_with_details_tags_as_text() {
-    let source = "<details>\n<summary>S</summary>\n<p>\nIn a paragraph.\n\n</p>\n</details>\n\n\
-            After.\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            details(vec![text("S")], vec![paragraph("In a paragraph.")]),
-            paragraph("After."),
-        ]
-    );
-    let source = "<details>\n<summary>S</summary>\n\nIn.\n\n<p>More.</p>\n</details>\n\nAfter.\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            details(vec![text("S")], vec![paragraph("In."), paragraph("More.")]),
-            paragraph("After."),
-        ]
-    );
-}
-
-#[test]
-fn ends_a_details_at_a_block_that_holds_more_than_its_end() {
-    let source = "<details>\n<summary>S</summary>\n\nIn.\n\n</details>\nAfter.\n\nLast.\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            details(vec![text("S")], vec![paragraph("In.")]),
-            paragraph("After."),
-            paragraph("Last."),
-        ]
-    );
-    let source = "<details>\n<summary>A</summary>\n\nIn A.\n\n</details>\n<details>\n\
-            <summary>B</summary>\n\nIn B.\n\n</details>\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            details(vec![text("A")], vec![paragraph("In A.")]),
-            details(vec![text("B")], vec![paragraph("In B.")]),
-        ]
-    );
-    assert_eq!(
-        parse("<details>x</details><p>y</p>\n").blocks,
-        vec![
-            details(vec![text("Details")], vec![paragraph("x")]),
-            paragraph("y")
-        ]
-    );
-}
-
-#[test]
-fn a_details_never_closed_runs_to_the_end_of_its_container() {
-    let source = "> <details>\n> <summary>S</summary>\n> More text.\n>\n> In.\n\nOut.\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![
-            Block::BlockQuote(vec![details(
-                vec![text("S")],
-                vec![paragraph("More text."), paragraph("In.")]
-            )]),
-            paragraph("Out."),
-        ]
-    );
-}
-
-#[test]
-fn a_details_in_one_block_holds_its_text_as_a_paragraph() {
-    let source =
-        "<details><summary>One</summary>Hidden &amp; <b>text</b>\non two lines</details>\n";
-    assert_eq!(
-        parse(source).blocks,
-        vec![details(
-            vec![text("One")],
-            vec![paragraph("Hidden & text on two lines")]
-        )]
-    );
-    assert_eq!(
-        parse("<details><summary>Empty</summary> </details>\n").blocks,
-        vec![details(vec![text("Empty")], Vec::new())]
-    );
-    assert_eq!(
-        parse("<details><summary>Logo</summary><img src=a.png alt=x></details>\n").blocks,
-        vec![details(
-            vec![text("Logo")],
-            vec![Block::Paragraph(vec![image("a.png", vec![text("x")])])]
-        )]
-    );
-}
-
-#[test]
-fn a_details_without_a_summary_is_called_details() {
-    assert_eq!(
-        parse("<details>\n\nText.\n\n</details>\n").blocks,
-        vec![details(vec![text("Details")], vec![paragraph("Text.")])]
-    );
-    assert_eq!(
-        parse("<details>\n\n<summary>Later</summary>\n\nText.\n\n</details>\n").blocks,
-        vec![details(vec![text("Later")], vec![paragraph("Text.")])]
-    );
-}
-
-#[test]
-fn keeps_a_details_end_without_a_start_as_source() {
-    assert_eq!(
-        parse("Text.\n\n</details>\n").blocks,
-        vec![paragraph("Text."), Block::Html("</details>\n".into())]
-    );
-    assert_eq!(
-        parse("</details>\n<p>y</p>\n").blocks,
-        vec![Block::Html("</details>\n<p>y</p>\n".into())]
-    );
-}
-
-#[test]
-fn keeps_a_block_that_does_not_start_with_details_as_source() {
-    assert_eq!(
-        parse("<p>\n<details>\n\nText.\n").blocks,
-        vec![Block::Html("<p>\n<details>\n".into()), paragraph("Text.")]
-    );
 }
 
 #[test]
@@ -1165,54 +980,6 @@ fn nested_blocks_know_their_lines() {
             Some(13)
         ]
     );
-}
-
-#[test]
-fn details_and_the_blocks_in_them_know_their_lines() {
-    let source = "\
-Before
-
-<details>
-<summary>Outer</summary>
-
-In outer
-
-<details>
-<summary>Inner</summary>
-
-Deep
-
-</details>
-
-</details>
-
-After
-";
-    let document = parse(source);
-    assert_eq!(
-        lines_of(
-            &document,
-            &[&[0], &[1], &[1, 0], &[1, 1], &[1, 1, 0], &[2], &[1, 2]]
-        ),
-        [Some(1), Some(3), Some(6), Some(8), Some(11), Some(17), None]
-    );
-}
-
-#[test]
-fn details_in_one_html_block_start_on_the_line_of_that_block() {
-    let document = parse("Before\n\n<details><details>x</details></details>\n");
-    assert_eq!(
-        lines_of(&document, &[&[1], &[1, 0], &[1, 0, 0]]),
-        [Some(3), Some(3), Some(3)]
-    );
-    // An image in the body is read from the HTML block it is in too.
-    let source = "Before\n\n<details>\n<summary>S</summary>\n<img src=\"a.png\">\n</details>\n";
-    let document = parse(source);
-    assert_eq!(lines_of(&document, &[&[1], &[1, 0]]), [Some(3), Some(3)]);
-    assert!(matches!(
-        document.blocks[1],
-        Block::Details { ref blocks, .. } if matches!(blocks[0], Block::Paragraph(_))
-    ));
 }
 
 #[test]
@@ -1537,74 +1304,6 @@ fn a_formula_block_in_a_fence_is_exact() {
 }
 
 #[test]
-fn a_details_runs_from_its_first_tag_to_the_end_tag_that_closes_it() {
-    let source =
-        "Before\n\n<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n</details>\n\nAfter\n";
-    assert_eq!(
-        written(source, &[1]),
-        exact("<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n</details>")
-    );
-    assert_eq!(written(source, &[1, 0]), exact("first"));
-    assert_eq!(written(source, &[1, 1]), exact("second"));
-    assert_eq!(written(source, &[2]), exact("After"));
-}
-
-#[test]
-fn a_details_that_is_never_closed_runs_to_the_end_of_its_last_block() {
-    let source = "<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n";
-    assert_eq!(
-        written(source, &[0]),
-        exact("<details>\n<summary>S</summary>\n\nfirst\n\nsecond")
-    );
-    // With nothing inside it, to the end of the HTML block that opens it.
-    assert_eq!(
-        written("<details>\n<summary>S</summary>\n", &[0]),
-        exact("<details>\n<summary>S</summary>")
-    );
-}
-
-#[test]
-fn a_details_in_a_details_ends_with_its_own_end_tag() {
-    let source = "<details>\n<summary>A</summary>\n\n<details>\n<summary>B</summary>\n\ninner\n\n</details>\n\nafter inner\n\n</details>\n";
-    assert_eq!(written(source, &[0]).0, source.trim_end());
-    assert_eq!(
-        written(source, &[0, 0]),
-        exact("<details>\n<summary>B</summary>\n\ninner\n\n</details>")
-    );
-    assert_eq!(written(source, &[0, 0, 0]), exact("inner"));
-    assert_eq!(written(source, &[0, 1]), exact("after inner"));
-}
-
-#[test]
-fn what_is_read_from_one_html_block_has_the_whole_html_block() {
-    // An end tag and a new start in one HTML block: the first details ends
-    // with the block that closes it, the second starts with the block it
-    // starts in, so their bytes overlap.
-    let source = "<details>\n<summary>A</summary>\n\none\n\n</details>\n<details>\n<summary>B</summary>\n\ntwo\n\n</details>\n";
-    let shared = "</details>\n<details>\n<summary>B</summary>";
-    let (first, _) = written(source, &[0]);
-    assert!(
-        first.starts_with("<details>\n<summary>A") && first.ends_with(shared),
-        "{first:?}"
-    );
-    let (second, _) = written(source, &[1]);
-    assert!(
-        second.starts_with(shared) && second.ends_with("</details>"),
-        "{second:?}"
-    );
-    // The HTML of a details body is read as blocks of that HTML block.
-    let source = "<details>\n<summary>S</summary>\n<pre>x</pre>\n</details>\n";
-    assert_eq!(written(source, &[0, 0]), inside(source.trim_end()));
-    // A second `</details>` in that block closes nothing, stays source and
-    // is inside its block.
-    let source = "<details>\n<summary>S</summary>\n</details>\n</details>\n";
-    assert_eq!(written(source, &[1]), inside(source.trim_end()));
-    assert_eq!(written("a\n\n</details>\n", &[1]), exact("</details>"));
-    // A `<pre>` outside a details is the HTML block, whole.
-    assert_eq!(written("<pre>x</pre>\n", &[0]), exact("<pre>x</pre>"));
-}
-
-#[test]
 fn crlf_gives_the_same_lines_and_the_bytes_without_the_line_break() {
     let source = "# A\r\n\r\nb\r\nc\r\n\r\n- d\r\n\r\n  e\r\n";
     let document = parse(source);
@@ -1630,15 +1329,12 @@ fn a_whole_file_is_one_block_with_all_its_bytes() {
     }
 }
 
+/// Every block of a fixture or an example has its place on its source: its
+/// bytes, and its line among the lines of its bytes.
 #[test]
-fn every_block_from_the_source_of_a_fixture_has_bytes() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+fn every_block_of_a_fixture_or_an_example_has_its_place_on_its_source() {
     let mut seen = 0;
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_none_or(|extension| extension != "md") {
-            continue;
-        }
+    for path in crate::testing::documents() {
         let source = std::fs::read_to_string(&path).unwrap();
         let document = parse(&source);
         for (at, block) in document.blocks() {
@@ -1653,6 +1349,11 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
                 "{name}"
             );
             assert!(place.line >= 1, "{name}");
+            let line_of = |byte: usize| source[..byte].matches('\n').count() + 1;
+            assert!(
+                (line_of(place.bytes.start)..=line_of(place.bytes.end)).contains(&place.line),
+                "{name}: {place:?}"
+            );
             seen += 1;
         }
     }
@@ -1664,7 +1365,11 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#86 (paragraph)",
+        "S01-text.md#87 (paragraph)",
+        "the anchor line before it was given to it, and its bytes do not hold that line",
+    ),
+    (
+        "S01-text.md#113 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (
@@ -1678,12 +1383,6 @@ const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
         "footnotes.md#3 (quote)",
         "a footnote reference in it reads as plain text without its note",
-    ),
-    (
-        "html-tags.md#17 (details)",
-        "unexplained: the bytes of the `<details>` run on into the text after \
-     its `</details>` in the same HTML block, which reads as a paragraph of \
-     its own (see the ledger)",
     ),
 ];
 
@@ -1786,10 +1485,13 @@ fn comrak_gives_a_line_feed_for_a_crlf_in_a_code_block_and_an_html_block() {
         })
         .expect("a code block");
     assert_eq!(code, "first line\nsecond\tline\n");
-    let html = blocks
-        .iter()
-        .find_map(|(_, block)| match block {
-            Block::Html(html) => Some(html.clone()),
+    // The HTML block as comrak gives it: kiri reads its `<div>` since the tree
+    // of HTML, so it is no block of source.
+    let arena = Arena::new();
+    let root = parse_document(&arena, &source, &options());
+    let html = (root.children())
+        .find_map(|node| match &node.data().value {
+            NodeValue::HtmlBlock(block) => Some(block.literal.clone()),
             _ => None,
         })
         .expect("an html block");
@@ -1876,4 +1578,117 @@ fn lists_nest_50_levels_deep_and_deeper_markers_are_text() {
     assert!(last.contains("- x50"), "{last:?}");
     let (depth, _) = list_depth(&parse(&nested(100)).blocks);
     assert_eq!(depth, 50);
+}
+
+#[test]
+fn an_html_link_around_text_is_a_link_and_u_is_underlined_text() {
+    assert_eq!(
+        inlines_of("go <a href=\"https://x.example/a\">to <b>there</b></a> now\n"),
+        vec![
+            text("go "),
+            Inline::Link {
+                url: "https://x.example/a".into(),
+                title: None,
+                content: vec![text("to "), Inline::Strong(vec![text("there")])],
+            },
+            text(" now"),
+        ]
+    );
+    // `<u>` is a phrase at the level "all" only: at GitHub's, which is the
+    // default, its tags stay.
+    assert_eq!(
+        inlines_of("a <u>b</u> c\n"),
+        vec![
+            text("a "),
+            Inline::Html("<u>".into()),
+            text("b"),
+            Inline::Html("</u>".into()),
+            text(" c"),
+        ]
+    );
+    assert_eq!(
+        match parse_all("a <u>b</u> c\n").blocks.as_slice() {
+            [Block::Paragraph(inlines)] => inlines.clone(),
+            blocks => panic!("not one paragraph: {blocks:?}"),
+        },
+        vec![text("a "), Inline::Underline(vec![text("b")]), text(" c")]
+    );
+}
+
+#[test]
+fn the_end_tag_of_an_anchor_among_a_link_does_not_end_the_link() {
+    // The `</a>` ends the `<a name>` before it, which names its place,
+    // and it makes no link of the `<a href>` before it.
+    let kept = inlines_of("<a href=\"u\">see <a name=\"x\"></a> here\n");
+    assert!(
+        !kept.iter().any(|i| matches!(i, Inline::Link { .. })),
+        "{kept:?}"
+    );
+    assert!(kept.contains(&Inline::Anchor("x".into())), "{kept:?}");
+}
+
+#[test]
+fn an_html_anchor_is_its_places_and_a_link_without_content_stays_html() {
+    assert_eq!(
+        inlines_of("<a name=\"x\">y</a> <a href=\"z\"></a>\n"),
+        [
+            Inline::Anchor("x".into()),
+            text("y"),
+            text(" "),
+            Inline::Html("<a href=\"z\">".into()),
+            Inline::Html("</a>".into()),
+        ]
+    );
+}
+
+#[test]
+fn an_empty_link_of_html_stays_its_tags_and_a_later_end_tag_does_not_end_it() {
+    let html = |tag: &str| Inline::Html(tag.into());
+    assert_eq!(
+        inlines_of("<a href=\"x\"></a> hello </a>\n"),
+        [
+            html("<a href=\"x\">"),
+            html("</a>"),
+            text(" hello "),
+            html("</a>"),
+        ]
+    );
+    // A link after it is a link of its own.
+    let kept = inlines_of("<a href=\"x\"></a> hello <a href=\"y\">more</a>\n");
+    assert_eq!(
+        &kept[..3],
+        [html("<a href=\"x\">"), html("</a>"), text(" hello ")]
+    );
+    assert!(
+        matches!(&kept[3], Inline::Link { url, .. } if url == "y"),
+        "{kept:?}"
+    );
+}
+
+/// Whether a paragraph of `source`, at the top or in a centred block, is a
+/// lone image, as a backend that draws images asks for it.
+fn lone_image_of(source: &str) -> bool {
+    fn find(block: &Block) -> bool {
+        match block {
+            Block::Paragraph(content) => Inline::lone_image(content).is_some(),
+            Block::Centered(inner) => inner.iter().any(find),
+            _ => false,
+        }
+    }
+    parse(source).blocks.iter().any(find)
+}
+
+#[test]
+fn an_image_stays_a_lone_image_with_anchors_before_it_or_after_it() {
+    // An anchor before it is skipped, as before.
+    assert!(lone_image_of("<a name=\"x\"></a>\n\n![logo](a.png)\n"));
+    // After it, an anchor line that was given to the paragraph is skipped too.
+    assert!(lone_image_of(
+        "![logo](a.png)\n\n<a name=\"x\"></a>\n\n- item\n"
+    ));
+    assert!(lone_image_of(
+        "<p align=\"center\"><img src=\"a.png\"></p>\n\n<a name=\"x\"></a>\n"
+    ));
+    // On the same line: intended, as the anchor before the image is.
+    assert!(lone_image_of("![logo](a.png)<a name=\"x\"></a>\n"));
 }

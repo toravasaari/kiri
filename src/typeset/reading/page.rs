@@ -19,6 +19,7 @@
 //! The page is drawn a part at a time, so that a pager draws only what it
 //! shows.
 
+pub mod centred;
 mod code;
 mod details;
 #[cfg(test)]
@@ -680,9 +681,11 @@ pub fn lays_out(block: &Block) -> bool {
         | Block::CodeBlock { .. }
         | Block::Html(_)
         | Block::Note(_) => true,
-        Block::Details { .. } | Block::BlockQuote(_) | Block::Alert { .. } | Block::List(_) => {
-            block.children().all(|(_, child)| lays_out(child))
-        }
+        Block::Details { .. }
+        | Block::BlockQuote(_)
+        | Block::Alert { .. }
+        | Block::Centered(_)
+        | Block::List(_) => block.children().all(|(_, child)| lays_out(child)),
         Block::Error(_) | Block::ImageFile(_) => false,
     }
 }
@@ -692,7 +695,7 @@ pub fn lays_out(block: &Block) -> bool {
 /// code may reach across, and what becomes of those wider than it. Code
 /// takes its colours from `highlight`, and pictures come from `pictures`.
 pub fn lay_out(
-    blocks: &[&Block],
+    blocks: &[impl centred::Laid],
     look: &Look,
     fonts: &Fonts,
     (highlight, pictures): (&dyn Highlight, &dyn Pictures),
@@ -720,16 +723,17 @@ pub fn lay_out(
         y: 0.0,
         margin: frame.margin,
         shaded: false,
+        centre: false,
     };
     let mut placed = Vec::new();
     for (number, block) in blocks.iter().enumerate() {
         let above = flow.y;
-        let mut top = flow.top(block_margins(block, look).0);
-        if frame.snap && heading::snaps(block) {
+        let mut top = flow.top(block_margins(block.block(), look).0);
+        if frame.snap && heading::snaps(block.block()) {
             top = flow.snap(above);
         }
         let (items, bands) = (flow.items.len(), flow.bands.len());
-        flow.block(block, 0.0, width, 0);
+        flow.laid(block, width);
         let inner = flow.closed(number, (items, bands));
         placed.push(Placed {
             rows: top..flow.y,
@@ -1015,6 +1019,8 @@ struct Flow<'a> {
     /// Whether it is laid out on a shaded row of a table, which a table in
     /// it paints its own unshaded rows over, in the page's colour.
     shaded: bool,
+    /// Whether a paragraph, heading or picture is centred in its room.
+    centre: bool,
 }
 
 /// The margins above and below a block, as GitHub gives them.
@@ -1023,6 +1029,7 @@ fn block_margins(block: &Block, look: &Look) -> (f32, f32) {
     match block {
         Block::Heading { .. } => (1.5 * size, size),
         Block::ThematicBreak => (1.5 * size, 1.5 * size),
+        Block::Centered(blocks) => centred::margins(blocks, look),
         _ => (0.0, size),
     }
 }
@@ -1053,6 +1060,7 @@ impl<'a> Flow<'a> {
             y: top,
             margin: None,
             shaded: false,
+            centre: false,
         }
     }
 
@@ -1137,7 +1145,7 @@ impl<'a> Flow<'a> {
         let top = self.y;
         self.text_is(None);
         match block {
-            Block::Heading { level, content } => {
+            Block::Heading { level, content, .. } => {
                 self.text_is(number_of(block, Part::Content));
                 self.heading(level, content, x, width);
             }
@@ -1178,6 +1186,7 @@ impl<'a> Flow<'a> {
             }
             Block::FrontMatter(front_matter) => self.front_matter(block, front_matter, x, width),
             Block::Alert { .. } => self.alert(block, x, width, depth),
+            Block::Centered(blocks) => self.centred(blocks, x, width, depth),
             // Not part of a document, which `lays_out` leaves to the text
             // layout.
             Block::Error(_) | Block::ImageFile(_) => {}
@@ -1186,20 +1195,13 @@ impl<'a> Flow<'a> {
         self.covers(top);
     }
 
-    /// Lays `blocks` out one below another from the current top.
-    fn blocks(&mut self, blocks: &[Block], x: f32, width: f32, depth: usize) {
-        for (index, block) in blocks.iter().enumerate() {
-            self.top(block_margins(block, self.look).0);
-            self.step(index, |flow| flow.block(block, x, width, depth));
-        }
-    }
-
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
         let style = text::Look {
             size: self.look.size,
             line_height: self.look.spacing.line_height,
             weight: 400.0,
             color,
+            align: self.align(),
             ..text::Look::PLAIN
         };
         let ink = self.ink(width);

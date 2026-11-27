@@ -85,7 +85,7 @@ impl Flow<'_> {
     pub(super) fn image(&mut self, image: &Image, link: Option<&str>, x: f32, width: f32) {
         let picture = self.pictures.image(image, (width, f32::MAX));
         let first = self.items.len();
-        if self.place(picture, link, x, width, false) {
+        if self.place(picture, link, x, width, self.centre) {
             // The picture stands in the place of the alt text.
             self.picture_is(first, 0..image.alt.iter().map(inline_len).sum());
             return;

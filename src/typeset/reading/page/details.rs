@@ -17,7 +17,7 @@ impl Flow<'_> {
         depth: usize,
     ) {
         self.summary(summary, number, x, width);
-        self.blocks(blocks, x, width, depth);
+        self.blocks(blocks, x, width, depth, false);
     }
 
     /// Lays the summary of a `<details>` out in bold after a triangle, as

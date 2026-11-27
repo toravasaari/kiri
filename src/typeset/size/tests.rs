@@ -354,3 +354,29 @@ fn groups_say_where_they_start_and_cover_the_text() {
         assert_eq!(next, text.len(), "{text:?}: the groups cover the text");
     }
 }
+
+/// Spaces at every size kiri can draw take cells that grow with their
+/// number: at least one, and at least the fraction of their number. So the
+/// loop that adds spaces while they fit in a room, `Layout::centre_row`,
+/// ends. A scale only multiplies the cells, so the fractions are tried at
+/// the normal scale.
+#[test]
+fn spaces_take_more_cells_the_more_there_are_at_every_size() {
+    let mut sizes: Vec<TextSize> = (1..=7).filter_map(TextSize::new).collect();
+    for denominator in 2..=15 {
+        for numerator in 1..=7 {
+            if let Some(fraction) = Fraction::new(numerator, denominator) {
+                let size = TextSize::NORMAL.with_fraction(fraction, VerticalAlign::Bottom);
+                sizes.push(size);
+                sizes.push(size.as_one_group(HorizontalAlign::Left));
+            }
+        }
+    }
+    for size in sizes {
+        for n in 1..=16 {
+            let cells = size.width(&" ".repeat(n));
+            let least = (size.value() * n as f64).floor() as usize;
+            assert!(cells >= least.max(1), "{size:?} {n}: {cells}");
+        }
+    }
+}

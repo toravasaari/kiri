@@ -5,7 +5,7 @@ use crate::typeset::images::size::cell_size;
 use crate::typeset::images::{ImageError, Images, Placeholder, Source};
 use crate::typeset::inputs::{Inputs, RenderErrors};
 use crate::typeset::layout::{CodeColors, PageInputs};
-use crate::typeset::model::AlertKind;
+use crate::typeset::model::{AlertKind, Block};
 use crate::typeset::parse::parse;
 use crate::typeset::reading::page::Look;
 use crate::typeset::reading::{font_size, page_look};

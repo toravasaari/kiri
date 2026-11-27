@@ -182,8 +182,12 @@ pub(super) fn document(
         ),
         _ => {
             let style = settings.front_matter.style();
-            let (document, left_out) =
-                crate::typeset::parse::parse_with_warnings(source, style.is_some());
+            let options = crate::typeset::parse::ParseOptions {
+                front_matter: style.is_some(),
+                html: settings.markdown_html,
+                html_tags: settings.markdown_html_tags,
+            };
+            let (document, left_out) = crate::typeset::parse::parse_with_warnings(source, &options);
             let error = style
                 .and_then(|style| crate::typeset::inputs::front_matter_error(&document, style));
             if let Some(error) = error {

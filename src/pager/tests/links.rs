@@ -120,7 +120,7 @@ fn a_link_in_a_heading_drawn_as_an_image_is_skipped_by_tab() {
     let document = crate::typeset::parse::parse(
         "# A [link](https://one.example/) here\n\nBody [other](https://two.example/)\n",
     );
-    let Block::Heading { level, content } = &document.blocks[0] else {
+    let Block::Heading { level, content, .. } = &document.blocks[0] else {
         panic!("a heading");
     };
     let words = heading_words(content);
@@ -421,7 +421,7 @@ fn a_heading_drawn_as_an_image_is_a_target_too() {
     let document = crate::typeset::parse::parse(&format!(
         "[go](#a-heading)\n\n{before}# A heading\n\nBody\n\n{after}"
     ));
-    let Some(Block::Heading { level, content }) = document
+    let Some(Block::Heading { level, content, .. }) = document
         .blocks
         .iter()
         .find(|block| matches!(block, Block::Heading { .. }))

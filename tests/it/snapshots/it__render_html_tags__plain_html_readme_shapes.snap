@@ -1,0 +1,53 @@
+---
+source: tests/it/render_html_tags.rs
+expression: "render_for(\"html-readme-shapes.md\", Capabilities::plain(WIDTH))"
+---
+# HTML heads in the shapes of real READMEs
+
+  Each part below is one head as READMEs write
+  it, in words of our own. The shapes are the
+  ones that read differently from a browser
+  today.
+
+                   # Harbour
+
+        A small crate for tidal tables.
+
+    Docs <https://example.com/docs> · Issues
+          <https://example.com/issues>
+
+  <p>
+
+    A paragraph in a div, set apart by blank
+                     lines.
+
+  </p>
+
+    A div whose end tag is on the line after
+                another end tag.
+
+  ▼ More
+
+  Hidden text.
+
+  ▼ Closed up
+
+  Text of the details.
+
+  A plain div in a plain div, cut by blank
+  lines.
+
+  <p>
+
+  A plain paragraph with blank lines round its
+  text.
+
+  </p>
+
+         A span in a centred paragraph.
+
+
+
+  A superscript alone in its block.
+
+                 [image: Icon]

@@ -139,6 +139,7 @@ pub(super) fn without_scripts(content: &[Inline]) -> Vec<Inline> {
             Inline::Strong(inner) => Inline::Strong(without_scripts(inner)),
             Inline::Strikethrough(inner) => Inline::Strikethrough(without_scripts(inner)),
             Inline::Kbd(inner) => Inline::Kbd(without_scripts(inner)),
+            Inline::Underline(inner) => Inline::Underline(without_scripts(inner)),
             Inline::Mark(inner) => Inline::Mark(without_scripts(inner)),
             Inline::Link {
                 url,
@@ -198,5 +199,19 @@ mod tests {
         assert_eq!(characters(Script::Sup, "2π"), None);
         assert_eq!(characters(Script::Sup, "1 2").as_deref(), Some("¹ ²"));
         assert_eq!(characters(Script::Sub, "").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_script_inside_an_underline_inside_a_script_is_flattened_like_other_nested_ones() {
+        let text = |text: &str| Inline::Text(text.into());
+        // The content of `<sup>x<u><sup>y</sup></u></sup>`.
+        let content = [
+            text("x"),
+            Inline::Underline(vec![Inline::Superscript(vec![text("y")])]),
+        ];
+        assert_eq!(
+            without_scripts(&content),
+            vec![text("x"), Inline::Underline(vec![text("y")])]
+        );
     }
 }

@@ -27,7 +27,7 @@ impl Flow<'_> {
         };
         let indent = look.spacing.quote_indent * size;
         let mut inner = self.child(&quoted, top);
-        inner.blocks(blocks, x + indent, width - indent, depth);
+        inner.blocks(blocks, x + indent, width - indent, depth, false);
         self.take(&mut inner);
         self.y = inner.y;
         let bar = (look.spacing.quote_bar * size).round().max(1.0);
@@ -103,7 +103,7 @@ impl Flow<'_> {
         inner.text_is(written.map(|(_, number)| number));
         inner.y += inner.text(title, inner_x + icon_room);
         inner.y += look.spacing.alert_title_gap * size;
-        inner.blocks(blocks, inner_x, inner_width, depth);
+        inner.blocks(blocks, inner_x, inner_width, depth, false);
         let bottom = inner.y + pad;
         if let Some(tint) = alert.tint {
             self.rect(x, top, width, bottom - top, tint);

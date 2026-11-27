@@ -302,3 +302,46 @@ fn an_inline_formula_is_keyed_as_reading_mode_asks_for_it() {
     let asked = ImageKey::diagram(INLINE_FORMULA, "x\n", looks.diagram_look_loading(), 0);
     assert_eq!(keys, [asked]);
 }
+
+#[test]
+fn the_images_and_headings_inside_a_centred_wrapper_are_wanted_as_at_the_top_level() {
+    let image = |url: &str| {
+        Block::Paragraph(vec![Inline::Image(crate::typeset::model::Image {
+            url: url.into(),
+            alt: vec![Inline::Text("alt".into())],
+            width: None,
+            height: None,
+        })])
+    };
+    let heading = Block::Heading {
+        level: 1,
+        content: vec![Inline::Text("Name".into())],
+        id: None,
+    };
+    let blocks = [Block::Centered(vec![image("logo.png"), heading])];
+    let wanted_in = |headings, blocks: &[Block]| {
+        let mut wanted = Vec::new();
+        collect_blocks(
+            blocks,
+            (&SourceMap::default(), &mut Vec::new()),
+            &NoRenderer,
+            (headings, false),
+            &mut wanted,
+        );
+        (wanted.iter())
+            .map(|image| match image {
+                Wanted::Url(url) => (*url).to_owned(),
+                Wanted::Heading { level, cell, .. } => format!("heading {level} {cell:?}"),
+                Wanted::Diagram { .. } => unreachable!("no diagram"),
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(wanted_in(None, &blocks), ["logo.png"]);
+    assert_eq!(
+        wanted_in(Some((10, 20)), &blocks),
+        ["logo.png", "heading 1 (10, 20)"]
+    );
+    // In a quote, as without the wrapper, a heading is not an image.
+    let quoted = [Block::BlockQuote(blocks.to_vec())];
+    assert_eq!(wanted_in(Some((10, 20)), &quoted), ["logo.png"]);
+}

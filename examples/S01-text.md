@@ -124,8 +124,10 @@ echo ":rocket:"
 
 ## HTML tags
 
-A few HTML tags are drawn as GitHub shows them. Others, such as `<span>`,
-stay as source in a muted colour.
+A few HTML tags are drawn as GitHub shows them. Others, such as `<abbr>`,
+stay as source in a muted colour. A `<span>` draws nothing of its own, so
+what is in it is read as if its tags were not there: a <span>span, with
+**bold**</span> in a line.
 
 ### Line breaks
 
@@ -140,36 +142,121 @@ move on. A `<kbd>` looks like inline code.
 ### Bold, italic and code
 
 Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
-<em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
-<code>code</code> in running text look like their Markdown forms, and they
-nest, as in <b><i>bold italic</i></b>. These stay as source in the muted
-colour: a tag that never closes, as in <b>this one, the tags of a `<code>`
-with other tags inside, as in <code>a <b>b</b></code>, and `<u>`:
-<u>underlined</u>.
-
-### Entities
-
-Named entities in a one-line `<details>` show as their characters. The
-summary reads "Fish & chips — 5 €", and the line after it "One line — © …
-&mdash; &Mdash;": `&amp;mdash;` shows as written, and so does an unknown
-or wrongly cased name such as `&Mdash;`.
-
-<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
+<em>emphasis</em>, <s>struck</s>, <strike>crossed</strike> and
+<del>deleted</del> words, and <code>code</code> in running text look like
+their Markdown forms, and they nest, as in <b><i>bold italic</i></b>. An
+<ins>inserted</ins> word is underlined, as a browser draws it. These stay as
+source in the muted colour: a tag that never closes, as in <b>this one, the
+tags of a `<code>` with other tags inside, as in <code>a <b>b</b></code>, and
+`<u>`, which GitHub does not show: <u>underlined</u>. With `html = "all"` in
+the `[markdown]` table of the configuration file, the `<u>` is underlined.
 
 ### HTML headings
 
 A block of one `<h1>` to `<h6>` is drawn as the Markdown heading of that
 level: a level 3, a level 4 and a level 2 below. Attributes are ignored,
-so the `align="center"` heading is **not** centred. A `<h7>` stays as
-source.
+except that `align="center"` centres the heading. A `<h7>` stays as source.
 
 <h3>An HTML heading</h3>
 
-<h4 align="center">With an <code>align</code>, drawn at the left</h4>
+<h4 align="center">With an <code>align</code>, drawn centred</h4>
 
 <h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
 
 <h7>No such heading stays as source</h7>
+
+### Centred heads
+
+A title and a row of links in a `<div align="center">`, `<p align="center">`
+or `<center>` are drawn in the middle of the line, as a README shows its head.
+A list, a quote or a table in such a wrapper is drawn where it is, not
+centred. GitHub does not show `<center>`, so at the default level its two
+tags show in the muted colour and what is in it is not centred; with
+`html = "all"` in the `[markdown]` table of the configuration file it is.
+
+<div align="center">
+  <h3>A centred title</h3>
+  <a href="https://example.com/docs">Docs</a> &middot;
+  <a href="https://example.com/issues">Issues</a>
+</div>
+
+<div align="center">
+
+A line in a wrapper set apart by blank lines is centred, and its list is not:
+
+- the first item
+- the second item
+
+</div>
+
+A Markdown paragraph closes an open `<p>` too. In the example below the blank
+line closes the `<p align="center">` before the Markdown line, so the later
+`</p>` closes nothing: both tags show in the muted colour, and nothing is
+centred. In a `<div align="center">`, as above, the same lines are centred.
+
+<p align="center">
+
+A line of Markdown, not centred.
+
+</p>
+
+A `<p>` that has no end tag is closed by the next `<p>`, `<div>`, `<center>`
+or `<details>`, as in a browser, and what it holds is centred. In the example
+below there is no `</p>` after the first line, but the next
+`<p align="center">` closes it, so both lines are centred:
+
+<p align="center">A centred line, its end tag left out.
+<p align="center">The second line.
+
+### Plain wrappers and broken tags
+
+A `<div>` or a `<p>` that centres nothing draws nothing of its own: what is
+in it is read as if the tags were not there. Each of the two lines below is
+a paragraph at the left, without a tag to be seen.
+
+<div>
+A line in a plain div.
+</div>
+
+<p>A line in a plain p.</p>
+
+A tag that is never closed, or that holds what it may not, has no effect, and
+it shows in the muted colour; what it holds is read as it would be without
+it. The heading below is never closed, so its `<h2>` shows muted and the
+words after it are a paragraph, not a heading:
+
+<h2>A heading never closed
+
+A `<details>` that is never closed is broken in the same way. Below, its
+`<details>` and `<summary>` show muted, and the paragraph after them is not
+inside a details:
+
+<details>
+<summary>Never closed</summary>
+
+A paragraph after it, at the left.
+
+### Tags with no effect
+
+A tag that kiri does not know, such as `<abbr>`, and one that is outside the
+level, such as `<center>` at the default level, show in the muted colour,
+and what they hold is read as if they were not there: in this line the
+<abbr title="Hypertext Markup Language">HTML</abbr> shows its two tags muted
+and the word between them as the text round it. A stray end tag between
+blocks is a muted line of its own:
+
+</div>
+
+With `html_tags = "hide"` in the `[markdown]` table of the configuration
+file the tags are left out, and so is the muted line above. Source that
+kiri shows as written, such as a `<table>`, is never left out.
+
+An anchor line between two paragraphs adds no blank row, and [a link to
+it](#here) still goes to the paragraph after it:
+
+<a name="here"></a>
+
+The paragraph after the anchor line.
 
 ### Sub and sup
 

@@ -426,11 +426,11 @@ fn a_heading_below_an_image_in_a_block_of_html_is_current_from_its_own_line() {
 
 #[test]
 fn a_heading_deep_in_a_block_of_html_is_current_from_its_own_row_in_reading_mode() {
-    let source = "# Top\n\n<div>\n\
+    let source = "# Top\n\n<table>\n\
             <p>lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua</p>\n\
             <h2>Alpha</h2>\n\
             <p>ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi</p>\n\
-            </div>\n\nlast text\n";
+            </table>\n\nlast text\n";
     let document = parse(source);
     let found = targets([&document]);
     let contents = contents([(None, &document)], &found);
@@ -476,4 +476,79 @@ fn nothing_is_current_in_a_document_without_headings() {
     let contents = contents([(None, &document)], &found);
     let laid = driver::laid(Content::Document(&document), &cells(60));
     assert_eq!(contents.current(laid.map(), 0), None);
+}
+
+/// A document of a heading, an HTML heading and a paragraph in a centred
+/// wrapper, built by hand, and one more heading after it.
+fn centred_document() -> crate::typeset::model::Document {
+    use crate::typeset::model::{Block, Document, Inline};
+    let text = |text: &str| vec![Inline::Text(text.into())];
+    Document::new(vec![
+        Block::Centered(vec![
+            Block::Html("<a name=\"top\"></a>\n".into()),
+            Block::Heading {
+                level: 1,
+                content: text("Name"),
+                id: None,
+            },
+            Block::Html("<h2 align=\"center\">Sub</h2>\n".into()),
+            Block::Paragraph(text("words")),
+        ]),
+        Block::Heading {
+            level: 2,
+            content: text("After"),
+            id: None,
+        },
+    ])
+}
+
+#[test]
+fn headings_inside_a_centred_wrapper_are_entries_with_their_places() {
+    let document = centred_document();
+    let found = targets([&document]);
+    let contents = contents([(None, &document)], &found);
+    let entries: Vec<_> = (contents.entries().iter())
+        .map(|e| (e.level, e.text.as_str(), e.id.as_deref().unwrap()))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (1, "Name", "name"),
+            (2, "Sub", "sub"),
+            (2, "After", "after")
+        ]
+    );
+    assert_eq!(contents.entries()[0].path, [0, 1]);
+    assert_eq!(contents.entries()[2].path, [1]);
+}
+
+#[test]
+fn the_entries_of_a_centred_wrapper_are_current_where_they_are_drawn_in_both_layouts() {
+    let document = centred_document();
+    let found = targets([&document]);
+    let contents = contents([(None, &document)], &found);
+    for (inputs, what) in [(cells(60), "cells"), (reading(60), "reading")] {
+        let laid = driver::laid(Content::Document(&document), &inputs);
+        let lines: Vec<usize> = (contents.entries().iter())
+            .map(|e| laid.line_of(&e.start).unwrap())
+            .collect();
+        assert!(lines[0] < lines[2], "{what}: {lines:?}");
+        for (i, &line) in lines.iter().enumerate() {
+            let on = lines.iter().rposition(|&other| other <= line);
+            assert_eq!(contents.current(laid.map(), line), on, "{what}: on {i}");
+        }
+        assert_eq!(contents.current(laid.map(), lines[2]), Some(2), "{what}");
+    }
+}
+
+#[test]
+fn a_heading_with_an_id_is_listed_once_with_its_text() {
+    for source in [
+        "<h2 id=\"top\">Name <em>here</em></h2>\n",
+        "<h2 align=\"center\" id=\"top\">Name <em>here</em></h2>\n",
+        "<div align=\"center\">\n<h2 id=\"top\">Name <em>here</em></h2>\n</div>\n",
+        "<div align=\"center\">\n\n<h2 id=\"top\">Name <em>here</em></h2>\n\n</div>\n",
+    ] {
+        assert_eq!(of(source), [row(2, "Name here", "top")], "{source:?}");
+    }
 }

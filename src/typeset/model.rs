@@ -239,6 +239,9 @@ pub enum Block {
     Heading {
         level: u8,
         content: Vec<Inline>,
+        /// The id the document gives it, as HTML's `id` does; `None` for a
+        /// Markdown heading, whose id is made from its text.
+        id: Option<String>,
     },
     Paragraph(Vec<Inline>),
     CodeBlock {
@@ -267,6 +270,11 @@ pub enum Block {
         summary: Vec<Inline>,
         blocks: Vec<Block>,
     },
+    /// HTML that centres what it holds, such as `<p align="center">`: its
+    /// paragraphs, headings and images are centred in the room the block
+    /// has, and tables, code blocks, lists and quotes stay where they
+    /// would be.
+    Centered(Vec<Block>),
     Table(Table),
     ThematicBreak,
     /// Raw HTML, shown as source until there is an HTML backend.
@@ -289,7 +297,7 @@ pub enum Block {
 #[derive(Debug, Clone, Copy)]
 pub enum Contents<'a> {
     None,
-    /// A quote, an alert or a `<details>`: one path step to each block.
+    /// A quote, an alert, a `<details>` or a centred wrapper: one path step to each block.
     Blocks(&'a [Block]),
     /// A list: two path steps, the item and the block inside it.
     Items(&'a [ListItem]),
@@ -323,7 +331,8 @@ impl Block {
         match self {
             Self::BlockQuote(blocks)
             | Self::Alert { blocks, .. }
-            | Self::Details { blocks, .. } => Contents::Blocks(blocks),
+            | Self::Details { blocks, .. }
+            | Self::Centered(blocks) => Contents::Blocks(blocks),
             Self::List(list) => Contents::Items(&list.items),
             Self::FrontMatter(_)
             | Self::Heading { .. }
@@ -356,6 +365,17 @@ impl Block {
         });
         direct.chain(in_items)
     }
+
+    /// Whether a centred wrapper centres this block: a paragraph (its lines
+    /// and its picture), a heading, or a code block, which is centred when
+    /// it is drawn as a diagram. A table, a list, a quote and the rest are
+    /// drawn where they would be, and the blocks in them as they would be.
+    pub fn is_centred_in_wrapper(&self) -> bool {
+        matches!(
+            self,
+            Self::Paragraph(_) | Self::Heading { .. } | Self::CodeBlock { .. }
+        )
+    }
 }
 
 #[cfg(test)]
@@ -371,6 +391,7 @@ impl Block {
             Block::Alert { .. } => "alert",
             Block::List(_) => "list",
             Block::Details { .. } => "details",
+            Block::Centered(_) => "centred",
             Block::Table(_) => "table",
             Block::ThematicBreak => "rule",
             Block::Html(_) => "html",
@@ -621,6 +642,8 @@ pub enum Inline {
     Subscript(Vec<Inline>),
     /// Text set high and small, as in x²: HTML's `<sup>`.
     Superscript(Vec<Inline>),
+    /// Underlined text: HTML's `<u>`.
+    Underline(Vec<Inline>),
     Link {
         url: String,
         /// The title written after the address: `[a](u "title")`.
@@ -667,11 +690,12 @@ pub enum Length {
 
 impl Inline {
     /// The image that `content`, a paragraph, consists of: an image alone,
-    /// or alone inside a link. A backend that can draw images shows such a
+    /// or alone inside a link, with the anchors before or after it, which
+    /// draw nothing. A backend that can draw images shows such a
     /// paragraph as the image itself; images anywhere else are part of the
     /// text.
     pub fn lone_image(content: &[Inline]) -> Option<&Image> {
-        match content {
+        match Self::after_anchors(content) {
             [Inline::Image(image)] => Some(image),
             [Inline::Link { content, .. }] => match content.as_slice() {
                 [Inline::Image(image)] => Some(image),
@@ -684,11 +708,24 @@ impl Inline {
     /// The image that `content` consists of, as [`Inline::lone_image`]
     /// finds it, and where the link around it goes, if there is one.
     pub fn lone_linked_image(content: &[Inline]) -> Option<(&Image, Option<&str>)> {
-        match content {
+        match Self::after_anchors(content) {
             [Inline::Link { url, content, .. }] => {
                 Self::lone_image(content).map(|image| (image, Some(url.as_str())))
             }
             _ => Self::lone_image(content).map(|image| (image, None)),
+        }
+    }
+
+    /// `content` from its first inline that is no anchor to its last: the
+    /// anchors at either end draw nothing, and a paragraph of only an image
+    /// may have been given the places of an anchor line before or after it.
+    fn after_anchors(content: &[Inline]) -> &[Inline] {
+        let is_anchor = |inline: &Inline| matches!(inline, Inline::Anchor(_));
+        let start = content.iter().position(|inline| !is_anchor(inline));
+        let end = content.iter().rposition(|inline| !is_anchor(inline));
+        match (start, end) {
+            (Some(start), Some(end)) => &content[start..=end],
+            _ => &[],
         }
     }
 
@@ -705,6 +742,7 @@ impl Inline {
                 | Inline::Mark(content)
                 | Inline::Subscript(content)
                 | Inline::Superscript(content)
+                | Inline::Underline(content)
                 | Inline::Link { content, .. }
                 | Inline::Formula {
                     written: content, ..
@@ -961,6 +999,47 @@ mod tests {
     }
 
     #[test]
+    fn a_centred_wrapper_centres_a_paragraph_a_heading_and_a_code_block_only() {
+        let centred = [
+            paragraph("t"),
+            Block::Heading {
+                level: 2,
+                content: vec![Inline::Text("t".into())],
+                id: None,
+            },
+            Block::CodeBlock {
+                language: None,
+                code: "c".into(),
+                whole_file: false,
+            },
+        ];
+        for block in &centred {
+            assert!(block.is_centred_in_wrapper(), "{}", block.kind());
+        }
+        let list = List {
+            start: None,
+            tight: true,
+            footnotes: false,
+            items: Vec::new(),
+        };
+        let others = [
+            Block::List(list),
+            Block::BlockQuote(vec![paragraph("t")]),
+            Block::Centered(vec![paragraph("t")]),
+            Block::Details {
+                summary: vec![Inline::Text("s".into())],
+                blocks: vec![paragraph("t")],
+            },
+            Block::ThematicBreak,
+            Block::Html("<p>".into()),
+            Block::Note("n".into()),
+        ];
+        for block in &others {
+            assert!(!block.is_centred_in_wrapper(), "{}", block.kind());
+        }
+    }
+
+    #[test]
     fn a_leaf_block_has_no_contents_and_no_children() {
         let block = paragraph("a");
         assert!(matches!(block.contents(), Contents::None));
@@ -973,6 +1052,19 @@ mod tests {
         assert!(matches!(quote.contents(), Contents::Blocks(blocks) if blocks.len() == 2));
         let steps: Vec<Steps> = quote.children().map(|(steps, _)| steps).collect();
         assert_eq!(steps, [Steps::One(0), Steps::One(1)]);
+    }
+
+    #[test]
+    fn a_centred_wrapper_holds_blocks_with_one_step_to_each_as_a_quote_does() {
+        let wrapper = Block::Centered(vec![paragraph("a"), paragraph("b")]);
+        assert!(matches!(wrapper.contents(), Contents::Blocks(blocks) if blocks.len() == 2));
+        assert_eq!(wrapper.kind(), "centred");
+        let steps: Vec<Steps> = wrapper.children().map(|(steps, _)| steps).collect();
+        assert_eq!(steps, [Steps::One(0), Steps::One(1)]);
+        // The blocks of a document come with the paths into the wrapper.
+        let document = Document::new(vec![paragraph("x"), wrapper]);
+        let paths: Vec<Vec<usize>> = document.blocks().into_iter().map(|(at, _)| at).collect();
+        assert_eq!(paths, [vec![0], vec![1], vec![1, 0], vec![1, 1]]);
     }
 
     #[test]

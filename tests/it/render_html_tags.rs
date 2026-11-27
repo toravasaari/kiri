@@ -161,3 +161,37 @@ fn a_sup_keeps_its_place_in_a_table_cell_a_link_and_emphasis() {
         "{out:?}"
     );
 }
+
+/// The heads of real READMEs as they draw today: the baseline that the
+/// reading of HTML as one tree is measured by.
+#[test]
+fn plain_html_readme_shapes() {
+    insta::assert_snapshot!(render_for(
+        "html-readme-shapes.md",
+        Capabilities::plain(WIDTH)
+    ));
+}
+
+/// A block of nothing but `<a name>` or `<a id>` draws no row of its own where
+/// a paragraph or heading can take its places, the next one or the one before
+/// it: the blank rows between two blocks are those of any two blocks. Where
+/// none can, the block stays and draws an empty row.
+#[test]
+fn a_block_of_only_anchors_adds_no_rows_where_a_paragraph_can_take_it() {
+    let plain = |source: &str| render(source, &inputs(&Capabilities::plain(WIDTH), &fixed_theme()));
+    assert_eq!(plain("a\n\n<a name=\"top\"></a>\n\nb\n"), "  a\n\n  b\n");
+    assert_eq!(
+        plain("a\n\n<a id=\"x\"></a>\n<a name=\"y\"></a>\n\nb\n"),
+        "  a\n\n  b\n"
+    );
+    assert_eq!(plain("<a name=\"top\"></a>\n# H\n\nb\n"), "# H\n\n  b\n");
+    // At the end, the places go to the block before.
+    assert_eq!(plain("a\n\n<a name=\"end\"></a>\n"), "  a\n");
+    // With no paragraph or heading to give them to, the block of the anchor
+    // stays, so that a link to it still goes somewhere: one empty row.
+    assert_eq!(plain("<a name=\"x\"></a>\n"), "\n");
+    assert_eq!(
+        plain("a\n\n<div align=\"center\"><a name=\"x\"></a></div>\n\nb\n"),
+        "  a\n\n\n\n  b\n"
+    );
+}

@@ -33,7 +33,7 @@ The content is *Markdown*, as GitHub shows it:
 </details>
 
 <details><summary>Written on one line</summary>The content &amp; its
-<b>tags</b> are plain text.</details>
+<b>tags</b> are read as a paragraph.</details>
 
 <details>
 
@@ -72,7 +72,7 @@ Content of the outer one.
 <details>
 <summary>With an HTML paragraph</summary>
 <p>
-The paragraph's text, read as plain text.
+The paragraph is shown as source, as a `<p>` of its own is.
 
 </p>
 </details>
@@ -111,7 +111,7 @@ Body of the details.
 
 <h3>An HTML heading</h3>
 
-<h4 align="center" id="x">With an <code>align</code>, drawn left-aligned</h4>
+<h4 align="center" id="x">With an <code>align</code>, drawn centred</h4>
 
 <h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
 
@@ -119,7 +119,8 @@ Body of the details.
 
 ## Other tags
 
-Text with <span>a span</span> and <u>an underline</u> stays as source.
+Text with <span>a span</span>, which draws nothing of its own, and
+<abbr>an abbreviation</abbr>, whose tags stay as source.
 
 <div>
 A div block stays as source.

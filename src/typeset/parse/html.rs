@@ -1,12 +1,26 @@
-//! The few HTML tags in Markdown that kiri reads instead of showing them as
-//! source. They are `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`, `<em>`,
-//! `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone in a block,
-//! and `<details>` with its `<summary>`.
+//! The HTML in Markdown: its tokens, attributes and entities, and the tree and the table by which kiri reads it.
+//!
+//! The elements kiri reads are the rows of the table, `html/elements.rs`.
+//! The HTML blocks of a container and the Markdown blocks between them are
+//! one tree (`html/tree.rs`), read as blocks (`html/blocks.rs`); the tags in
+//! running text are joined into inlines (`html/inline.rs`).
 
 use std::ops::Range;
 
 use crate::typeset::model::{Inline, Length};
+
+mod blocks;
+mod elements;
+mod inline;
+mod tree;
+pub(super) use blocks::{Part, read};
+#[cfg(test)]
+use elements::Phrase;
+use elements::heading_level;
+pub use elements::{HtmlLevel, HtmlTags};
+pub use inline::{Joined, html_inlines};
+#[cfg(test)]
+use inline::{Shape, read_tag};
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,27 +29,26 @@ pub struct Img {
     pub alt: String,
     pub width: Option<Length>,
     pub height: Option<Length>,
-    /// The `href` of an `<a>` around the image.
-    pub link: Option<String>,
 }
 
-/// Tags a block may wrap its one `<img>` in and still be that image.
-/// A browser shows `<picture>` as its `<img>` unless a `<source>` fits.
-/// An `<a>` with an `href` makes the image a link.
-const WRAPPERS: [&str; 6] = ["p", "div", "center", "picture", "source", "a"];
-
 /// The image that inline HTML, one tag, is.
+#[cfg(test)]
 pub fn inline_img(html: &str) -> Option<Img> {
-    match tokens(html)?.as_slice() {
-        [Token::Open(tag)] => img(tag),
+    match read_tag(html, HtmlLevel::All) {
+        Shape::Image(img) => Some(img),
         _ => None,
     }
 }
 
 /// The `href` of inline HTML that is one `<a>` tag.
+#[cfg(test)]
 pub fn link_start(html: &str) -> Option<String> {
-    match tokens(html)?.as_slice() {
-        [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(str::to_owned),
+    match read_tag(html, HtmlLevel::All) {
+        Shape::Start {
+            phrase: Phrase::A,
+            href,
+            ..
+        } => href,
         _ => None,
     }
 }
@@ -47,128 +60,34 @@ pub fn anchor_ids(html: &str) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for token in tokens(html).unwrap_or_default() {
         let Token::Open(tag) = token else { continue };
-        if tag.name != "a" {
-            continue;
-        }
-        for attribute in ["id", "name"] {
-            if let Some(id) = tag.get(attribute).filter(|id| !id.is_empty())
-                && !ids.iter().any(|known| known == id)
-            {
-                ids.push(id.to_owned());
+        for id in tag_ids(&tag) {
+            if !ids.contains(&id) {
+                ids.push(id);
             }
         }
     }
     ids
 }
 
-/// A part of an HTML block that holds `<details>` tags, as
-/// `details_parts` cuts it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DetailsPart<'a> {
-    /// A `<details>`, with the content of the `<summary>` right after it
-    /// as text and inline HTML; `None` without one.
-    Start(Option<Vec<Inline>>),
-    /// A `</details>`, as written.
-    End(&'a str),
-    /// The HTML between those tags, when it is more than whitespace and
-    /// comments.
-    Html(&'a str),
-}
-
-/// An HTML block cut at its `<details>` and `</details>` tags, each
-/// `<details>` with the `<summary>` right after it. `None` for a block
-/// without those tags, with a `<summary>` there that does not end, or
-/// that `tokens` cannot read.
-pub fn details_parts(html: &str) -> Option<Vec<DetailsPart<'_>>> {
-    let tokens = spanned_tokens(html)?;
-    let mut parts = Vec::new();
-    // The token and the byte where the HTML since the last tag starts.
-    let (mut html_token, mut html_start) = (0, 0);
-    let mut index = 0;
-    while let Some((token, span)) = tokens.get(index) {
-        // The part a tag makes, and the token and byte after it.
-        let (part, next, end) = match token {
-            Token::Open(tag) if tag.name == "details" => {
-                let rest = skip_blank(&tokens[index + 1..]);
-                match rest {
-                    [(Token::Open(tag), open), ..] if tag.name == "summary" => {
-                        let close = rest.iter().position(
-                            |(token, _)| matches!(token, Token::Close(name) if name == "summary"),
-                        )?;
-                        let close_span = &rest[close].1;
-                        let summary = inlines(&html[open.end..close_span.start])?;
-                        let next = tokens.len() - rest.len() + close + 1;
-                        (DetailsPart::Start(Some(summary)), next, close_span.end)
-                    }
-                    _ => (DetailsPart::Start(None), index + 1, span.end),
-                }
-            }
-            Token::Close(name) if name == "details" => {
-                (DetailsPart::End(&html[span.clone()]), index + 1, span.end)
-            }
-            _ => {
-                index += 1;
-                continue;
-            }
-        };
-        if !skip_blank(&tokens[html_token..index]).is_empty() {
-            parts.push(DetailsPart::Html(&html[html_start..span.start]));
+/// The `id` and the `name` of `tag` when it is an `<a>`, each when not
+/// empty, the one once when they are the same.
+fn tag_ids(tag: &Tag) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for attribute in ["id", "name"] {
+        if let Some(id) = tag
+            .get(attribute)
+            .filter(|id| tag.name == "a" && !id.is_empty())
+            && !ids.iter().any(|known| known == id)
+        {
+            ids.push(id.to_owned());
         }
-        parts.push(part);
-        (html_token, html_start, index) = (next, end, next);
     }
-    if parts.is_empty() {
-        return None;
-    }
-    if !skip_blank(&tokens[html_token..]).is_empty() {
-        parts.push(DetailsPart::Html(&html[html_start..]));
-    }
-    Some(parts)
+    ids
 }
 
-/// The content of an HTML block that is one `<summary>` element, with
-/// nothing else but whitespace and comments.
-pub fn summary(html: &str) -> Option<Vec<Inline>> {
-    let tokens = spanned_tokens(html)?;
-    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    if tag.name != "summary" {
-        return None;
-    }
-    let end = rest
-        .iter()
-        .position(|(token, _)| matches!(token, Token::Close(name) if name == "summary"))?;
-    if !skip_blank(&rest[end + 1..]).is_empty() {
-        return None;
-    }
-    inlines(&html[open.end..rest[end].1.start])
-}
-
-/// The level and content of an HTML block that is one `<h1>` to `<h6>`
-/// element, with nothing else but whitespace and comments. Its attributes
-/// are ignored. `None` for an empty one.
-pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
-    let tokens = spanned_tokens(html)?;
-    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    let level = heading_level(&tag.name)?;
-    let end = rest
-        .iter()
-        .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
-    // Another heading inside this one is no heading of its own: the block
-    // is two headings, one of them not closed, or worse.
-    if rest[..end].iter().any(
-        |(token, _)| matches!(token, Token::Open(inner) if heading_level(&inner.name).is_some()),
-    ) {
-        return None;
-    }
-    if !skip_blank(&rest[end + 1..]).is_empty() {
-        return None;
-    }
-    let content = inlines(&html[open.end..rest[end].1.start])?;
-    (!content.is_empty()).then_some((level, content))
+/// The `id` attribute of `tag`, when it is there and not empty.
+fn id_of(tag: &Tag) -> Option<String> {
+    tag.get("id").filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
 /// A `<h1>` to `<h6>` element somewhere in an HTML block.
@@ -214,119 +133,11 @@ pub fn headings(html: &str) -> Vec<InnerHeading> {
         found.push(InnerHeading {
             level,
             content,
-            id: tag.get("id").filter(|id| !id.is_empty()).map(str::to_owned),
+            id: id_of(tag),
             bytes: open.start..rest[end].1.end,
         });
     }
     found
-}
-
-/// The language and the code of an HTML block that is one `<pre>`, with
-/// one `<code>` in it or not, and only text between the tags: what a
-/// fence with that text would give. The language is the `lang` of the
-/// `<pre>`, else a `language-` or `lang-` class of the `<code>`. `None`
-/// for anything else, and for no code.
-pub fn pre(html: &str) -> Option<(Option<String>, String)> {
-    let tokens = spanned_tokens(html)?;
-    let [(Token::Open(pre), pre_open), inside @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    if pre.name != "pre" {
-        return None;
-    }
-    // The `<code>` right after the `<pre>`, past whitespace only. That
-    // whitespace is part of the code, as in a browser, but for its first
-    // newline.
-    let (lead, from_code) = match inside {
-        [(Token::Text(blank), _), after @ ..] if blank.trim().is_empty() => (*blank, after),
-        _ => ("", inside),
-    };
-    let lead = drop_first_newline(lead);
-    let (code, text_start, inner, body) = match from_code {
-        [(Token::Open(code), open), after @ ..] if code.name == "code" => {
-            (Some(code), open.end, "code", after)
-        }
-        _ => (None, pre_open.end, "pre", inside),
-    };
-    // Without a `<code>` the whitespace is in the text itself.
-    let lead = if code.is_some() { lead } else { "" };
-    // The text, and the tag that ends it.
-    let (text_end, after) = match body {
-        [(Token::Close(name), close), after @ ..] if name == inner => (close.start, after),
-        [(Token::Text(_), _), (Token::Close(name), close), after @ ..] if name == inner => {
-            (close.start, after)
-        }
-        _ => return None,
-    };
-    let after = match (code, after) {
-        (None, after) => after,
-        (Some(_), [(Token::Text(blank), _), (Token::Close(name), _), after @ ..])
-            if blank.trim().is_empty() && name == "pre" =>
-        {
-            after
-        }
-        (Some(_), [(Token::Close(name), _), after @ ..]) if name == "pre" => after,
-        _ => return None,
-    };
-    if !skip_blank(after).is_empty() {
-        return None;
-    }
-    // A browser drops the one newline right after the opening tag; here
-    // that is the last one, whether the blanks before `<code>` stay or not.
-    let raw = &html[text_start..text_end];
-    let raw = drop_first_newline(raw);
-    if lead.trim().is_empty() && raw.trim().is_empty() {
-        return None;
-    }
-    let mut text = lead.to_owned();
-    text.push_str(&decode_entities(raw));
-    // A fence keeps the newline that ends its last line.
-    if !text.ends_with('\n') {
-        text.push('\n');
-    }
-    let language = (pre
-        .get("lang")
-        .and_then(|lang| lang.split_ascii_whitespace().next()))
-    .or_else(|| {
-        code?
-            .get("class")?
-            .split_ascii_whitespace()
-            .find_map(|class| {
-                class
-                    .strip_prefix("language-")
-                    .or_else(|| class.strip_prefix("lang-"))
-                    .filter(|lang| !lang.is_empty())
-            })
-    });
-    Some((language.map(str::to_owned), text))
-}
-
-/// The level of a tag named `h1` to `h6`.
-fn heading_level(name: &str) -> Option<u8> {
-    match name.as_bytes() {
-        [b'h', digit @ b'1'..=b'6'] => Some(digit - b'0'),
-        _ => None,
-    }
-}
-
-/// `text` without the one newline that may start it.
-fn drop_first_newline(text: &str) -> &str {
-    text.strip_prefix("\r\n")
-        .or_else(|| text.strip_prefix('\n'))
-        .unwrap_or(text)
-}
-
-/// The text of HTML without its tags and comments, entities decoded and
-/// whitespace collapsed as a browser does. `None` for HTML that `tokens`
-/// cannot read.
-pub fn plain_text(html: &str) -> Option<String> {
-    let mut text = String::new();
-    for token in tokens(html)? {
-        if let Token::Text(raw) = token {
-            text.push_str(&decode_entities(raw));
-        }
-    }
-    Some(collapse_whitespace(&text).trim_matches(' ').to_owned())
 }
 
 /// HTML as inlines: its text, entities decoded and whitespace collapsed,
@@ -387,107 +198,61 @@ fn collapse_whitespace(text: &str) -> String {
     out
 }
 
-/// `tokens` from the first one that is not whitespace or a comment.
-fn skip_blank<'t, 'a>(tokens: &'t [(Token<'a>, Range<usize>)]) -> &'t [(Token<'a>, Range<usize>)] {
-    let start = tokens
-        .iter()
-        .position(|(token, _)| match token {
-            Token::Comment => false,
-            Token::Text(text) => !text.trim().is_empty(),
-            _ => true,
-        })
-        .unwrap_or(tokens.len());
-    &tokens[start..]
-}
-
-/// An inline element that kiri reads from its opening and closing tags,
-/// with the inlines between them as its content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phrase {
-    Kbd,
-    Mark,
-    Sub,
-    Sup,
-    B,
-    Strong,
-    I,
-    Em,
-    S,
-    Del,
-    Code,
-}
-
-impl Phrase {
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "kbd" => Some(Self::Kbd),
-            "mark" => Some(Self::Mark),
-            "sub" => Some(Self::Sub),
-            "sup" => Some(Self::Sup),
-            "b" => Some(Self::B),
-            "strong" => Some(Self::Strong),
-            "i" => Some(Self::I),
-            "em" => Some(Self::Em),
-            "s" => Some(Self::S),
-            "del" => Some(Self::Del),
-            "code" => Some(Self::Code),
-            _ => None,
-        }
-    }
-}
-
 /// The element that inline HTML, one opening tag, starts.
+#[cfg(test)]
 pub fn phrase_start(html: &str) -> Option<Phrase> {
-    match tokens(html)?.as_slice() {
-        [Token::Open(tag)] => Phrase::from_name(&tag.name),
+    match read_tag(html, HtmlLevel::All) {
+        // An `<a>` without an `href` is a place to go to, not a link.
+        Shape::Start {
+            phrase: Phrase::A,
+            href: None,
+            ..
+        } => None,
+        Shape::Start { phrase, .. } => Some(phrase),
         _ => None,
     }
 }
 
+/// Whether inline HTML is one start tag or one end tag: what is left out
+/// when the tags with no effect are hidden.
+#[cfg(test)]
+pub fn is_tag(html: &str) -> bool {
+    inline::is_tag(html)
+}
+
+/// Whether inline HTML is one `<a>` start tag without an `href`: no link,
+/// but the start that a `</a>` after it ends.
+#[cfg(test)]
+pub fn is_anchor_start(html: &str) -> bool {
+    matches!(
+        read_tag(html, HtmlLevel::All),
+        Shape::Start {
+            phrase: Phrase::A,
+            href: None,
+            ..
+        }
+    )
+}
+
 /// The element that inline HTML, one closing tag, ends.
+#[cfg(test)]
 pub fn phrase_end(html: &str) -> Option<Phrase> {
-    match tokens(html)?.as_slice() {
-        [Token::Close(name)] => Phrase::from_name(name),
+    match read_tag(html, HtmlLevel::All) {
+        Shape::End(phrase) => Some(phrase),
         _ => None,
     }
 }
 
 /// Whether inline HTML is one `<br>`, in any of its spellings.
+#[cfg(test)]
 pub fn is_line_break(html: &str) -> bool {
-    matches!(tokens(html).as_deref(), Some([Token::Open(tag)]) if tag.name == "br")
+    matches!(read_tag(html, HtmlLevel::All), Shape::Break)
 }
 
 /// Whether inline HTML is one `</a>`.
+#[cfg(test)]
 pub fn is_link_end(html: &str) -> bool {
-    matches!(tokens(html).as_deref(), Some([Token::Close(name)]) if name == "a")
-}
-
-/// The image an HTML block shows: one `<img>` among only tags that wrap
-/// it, comments and whitespace.
-pub fn block_img(html: &str) -> Option<Img> {
-    let mut found = None;
-    let mut link = None;
-    for token in tokens(html)? {
-        match token {
-            Token::Open(tag) if tag.name == "img" => {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some(Img {
-                    link: link.clone(),
-                    ..img(&tag)?
-                });
-            }
-            Token::Open(tag) if tag.name == "a" => link = tag.get("href").map(str::to_owned),
-            Token::Close(name) if name == "a" => link = None,
-            Token::Open(Tag { name, .. }) | Token::Close(name)
-                if WRAPPERS.contains(&name.as_str()) => {}
-            Token::Comment => {}
-            Token::Text(text) if text.trim().is_empty() => {}
-            _ => return None,
-        }
-    }
-    found
+    matches!(read_tag(html, HtmlLevel::All), Shape::End(Phrase::A))
 }
 
 fn img(tag: &Tag) -> Option<Img> {
@@ -504,7 +269,6 @@ fn img(tag: &Tag) -> Option<Img> {
         alt: tag.get("alt").unwrap_or_default().to_owned(),
         width: tag.get("width").and_then(length),
         height: tag.get("height").and_then(length),
-        link: None,
     })
 }
 
@@ -556,6 +320,14 @@ struct Tag {
 }
 
 impl Tag {
+    /// The tag of an end tag named `name`, which has no attributes.
+    fn end(name: String) -> Self {
+        Self {
+            name,
+            attributes: Vec::new(),
+        }
+    }
+
     /// An attribute's value. The first of repeated attributes counts, as
     /// in a browser.
     fn get(&self, name: &str) -> Option<&str> {

@@ -33,11 +33,11 @@ use crate::typeset::images::ImageKey;
 use crate::typeset::images::size::{Placement, Shows, Size};
 use crate::typeset::layout::expand_tabs;
 use crate::typeset::layout::{self, highlight};
-use crate::typeset::model::Block;
 use crate::typeset::reading::Fonts;
 use crate::typeset::reading::gallery::Gallery;
 use crate::typeset::reading::glyph_cache::GlyphCache;
 use crate::typeset::reading::look::mark_colors;
+use crate::typeset::reading::page::centred::Laid;
 use crate::typeset::reading::page::{
     self, Frame, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page, Plain, Wide,
 };
@@ -437,7 +437,7 @@ pub struct Cut {
 /// their `ids`, as `setting` says: the window, the colours, the sizes and
 /// the pictures.
 #[expect(clippy::too_many_lines)]
-pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Setting) -> Cut {
+pub fn lines(blocks: &[impl Laid], ids: &[Ids], reading: &Reading, setting: &Setting) -> Cut {
     let Setting {
         inputs,
         cell,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeset::model::{Block, Inline};
 use crate::typeset::parse::parse;
 use crate::typeset::position::Within;
 
@@ -254,8 +255,8 @@ fn an_a_id_and_an_a_name_in_text_and_alone_are_named_places() {
     assert_eq!(
         named("text <a id=\"x\"></a> more <a name=\"y\">z</a>\n"),
         [
-            (0, "x".into(), NamedKind::Html, "[0]:0@5..5".into()),
-            (0, "y".into(), NamedKind::Html, "[0]:0@25..25".into()),
+            (0, "x".into(), NamedKind::Anchor, "[0]:0@5..5".into()),
+            (0, "y".into(), NamedKind::Anchor, "[0]:0@11..11".into()),
         ]
     );
     // A tag alone on its line is an HTML block, and its range the block's.
@@ -266,10 +267,12 @@ fn an_a_id_and_an_a_name_in_text_and_alone_are_named_places() {
             (0, "title".into(), NamedKind::Heading, "[1]:block".into()),
         ]
     );
-    // Two tags on a line are a paragraph, and the place the start of it.
-    assert_eq!(
-        named("<a name=\"top\"></a>\n\n# Title\n")[0],
-        (0, "top".into(), NamedKind::Html, "[0]:0@0..0".into())
+    // Two tags on a line are a paragraph of only an anchor, which gives the
+    // place to the heading after it.
+    let found = named("<a name=\"top\"></a>\n\n# Title\n");
+    assert!(
+        found.contains(&(0, "top".into(), NamedKind::Anchor, "[0]:0@0..0".into())),
+        "{found:?}"
     );
 }
 
@@ -368,4 +371,235 @@ fn the_number_of_a_footnote_reference_in_a_heading_is_in_its_id_as_on_github() {
     let found = of("# Head[^1]\n\n[^1]: Note.\n");
     assert_eq!(found.named[0].id, "head1");
     assert_eq!(found.named[0].kind, NamedKind::Heading);
+}
+
+#[test]
+fn headings_and_anchors_inside_a_centred_wrapper_are_named_places_and_a_link_goes_to_them() {
+    use crate::typeset::model::{Block, Document, Inline};
+    let text = |text: &str| vec![Inline::Text(text.into())];
+    let document = Document::new(vec![
+        Block::Centered(vec![
+            Block::Html("<a name=\"top\"></a>\n".into()),
+            Block::Heading {
+                level: 1,
+                content: text("Name"),
+                id: None,
+            },
+            Block::Html("<h2 align=\"center\">Sub</h2>\n".into()),
+            Block::Paragraph(vec![Inline::Link {
+                url: "#top".into(),
+                title: None,
+                content: text("up"),
+            }]),
+        ]),
+        Block::Paragraph(text("after")),
+    ]);
+    let found = targets([&document]);
+    let named: Vec<_> = (found.named.iter())
+        .map(|named| {
+            (
+                named.id.as_str(),
+                named.range.start.path.clone(),
+                named.kind,
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ("top", vec![0, 0], NamedKind::Html),
+            ("name", vec![0, 1], NamedKind::Heading),
+            ("sub", vec![0, 2], NamedKind::Heading),
+        ]
+    );
+    assert_eq!(found.links.len(), 1);
+    assert_eq!(found.links[0].goes, here("top"));
+    assert_eq!(found.links[0].range.start.path, [0, 3]);
+    let top = found.named(0, "top").expect("the anchor is a place");
+    assert_eq!(top.range.start.path, [0, 0]);
+}
+
+#[test]
+fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
+    let named = |found: &Targets| {
+        (found.named.iter())
+            .map(|named| (named.id.clone(), named.range.start.path.clone(), named.kind))
+            .collect::<Vec<_>>()
+    };
+    // Set apart by blank lines: a block of only an anchor gives it to the
+    // heading after it, which is the place of both.
+    let found =
+        of("<div align=\"center\">\n\n<a name=\"top\"></a>\n\n# Name\n\n</div>\n\n[up](#top)\n");
+    assert_eq!(
+        named(&found),
+        [
+            ("name".to_owned(), vec![0, 0], NamedKind::Heading),
+            ("top".to_owned(), vec![0, 0], NamedKind::Anchor),
+        ]
+    );
+    assert_eq!(found.links[0].goes, here("top"));
+    // In one HTML block: the same.
+    let found = of("<div align=\"center\">\n<a name=\"top\"></a>\n<h2>Sub</h2>\n</div>\n");
+    assert_eq!(
+        named(&found),
+        [
+            ("sub".to_owned(), vec![0, 0], NamedKind::Heading),
+            ("top".to_owned(), vec![0, 0], NamedKind::Anchor),
+        ]
+    );
+}
+
+/// The ids of the headings of `source` and the paths of the places they name.
+fn heading_places(source: &str) -> Vec<(String, Vec<usize>)> {
+    (of(source).named.iter())
+        .filter(|named| named.kind == NamedKind::Heading)
+        .map(|named| (named.id.clone(), named.range.start.path.clone()))
+        .collect()
+}
+
+#[test]
+fn a_heading_in_html_is_a_place_by_its_id_when_it_stands_alone() {
+    let source = "<h1 id=\"top\">Name</h1>\n\n[go](#top)\n";
+    assert_eq!(heading_places(source), [("top".to_owned(), vec![0])]);
+    assert!(of(source).named(0, "top").is_some());
+    // The id is the heading's, and no id is made of its text as well.
+    assert!(of(source).named(0, "name").is_none());
+    assert_eq!(
+        parse(source).blocks[0],
+        Block::Heading {
+            level: 1,
+            content: vec![Inline::Text("Name".into())],
+            id: Some("top".into()),
+        }
+    );
+}
+
+#[test]
+fn a_centred_heading_with_an_id_is_a_place_alone_and_in_a_wrapper() {
+    for source in [
+        "<h1 align=\"center\" id=\"top\">Name</h1>\n",
+        "<div align=\"center\">\n<h1 id=\"top\">Name</h1>\n</div>\n",
+        "<div align=\"center\">\n\n<h1 id=\"top\">Name</h1>\n\n</div>\n",
+    ] {
+        let document = parse(source);
+        assert_eq!(
+            document.blocks,
+            [Block::Centered(vec![Block::Heading {
+                level: 1,
+                content: vec![Inline::Text("Name".into())],
+                id: Some("top".into()),
+            }])],
+            "{source:?}"
+        );
+        assert_eq!(
+            heading_places(source),
+            [("top".to_owned(), vec![0, 0])],
+            "{source:?}"
+        );
+        assert!(targets([&document]).named(0, "top").is_some());
+    }
+}
+
+#[test]
+fn markdown_headings_are_named_by_their_text_as_before() {
+    assert_eq!(
+        heading_places("# A\n\n# B\n\n## A\n"),
+        [
+            ("a".to_owned(), vec![0]),
+            ("b".to_owned(), vec![1]),
+            ("a-1".to_owned(), vec![2]),
+        ]
+    );
+}
+
+#[test]
+fn an_id_does_not_take_a_number_of_the_ids_made_of_text() {
+    let source = "<h1 id=\"x\">Same</h1>\n\n# Same\n\n<h2 id=\"y\">Same</h2>\n\n# Same\n";
+    let ids: Vec<_> = heading_places(source).into_iter().map(|p| p.0).collect();
+    assert_eq!(ids, ["x", "same", "y", "same-1"]);
+}
+
+#[test]
+fn a_link_of_html_keeps_the_named_place_of_its_id_and_name_round_text_or_an_image() {
+    for (source, id) in [
+        (
+            "<a id=\"sec\" href=\"https://e.com\">site</a>\n\n[back](#sec)\n",
+            "sec",
+        ),
+        (
+            "text <a id=\"sec\" href=\"https://e.com\">site</a> more\n",
+            "sec",
+        ),
+        ("<a name=\"x\" href=\"https://e.com\">site</a>\n", "x"),
+        (
+            "<a id=\"sec\" href=\"https://e.com\"><img src=\"a.png\" alt=\"p\"></a>\n\n[back](#sec)\n",
+            "sec",
+        ),
+        (
+            "text <a id=\"sec\" href=\"https://e.com\"><img src=\"a.png\"></a> more\n",
+            "sec",
+        ),
+        (
+            "<p align=\"center\"><a id=\"sec\" href=\"https://e.com\"><img src=\"a.png\"></a></p>\n",
+            "sec",
+        ),
+        (
+            "<a id=\"sec\" href=\"https://e.com\">\n<img src=\"a.png\">\n</a>\n",
+            "sec",
+        ),
+    ] {
+        let found = of(source);
+        assert!(
+            found.named(0, id).is_some(),
+            "{source:?}: {:?}",
+            found.named
+        );
+        assert!(
+            found.links.iter().any(|link| link.url == "https://e.com"),
+            "{source:?}"
+        );
+    }
+    let found = of("<a id=\"a\" name=\"b\" href=\"https://e.com\">site</a>\n");
+    let ids: Vec<_> = found.named.iter().map(|named| named.id.as_str()).collect();
+    assert_eq!(ids, ["a", "b"]);
+}
+
+#[test]
+fn an_anchor_of_html_that_its_end_tag_closes_is_a_named_place_and_no_tags() {
+    for (source, id, words) in [
+        ("<a name=\"top\"></a>\n\n[up](#top)\n", "top", "up"),
+        ("Go <a name=\"x\">here</a> now.\n", "x", "Go here now."),
+        ("<a id=\"y\"></a>Title\n", "y", "Title"),
+    ] {
+        let found = of(source);
+        assert!(
+            found.named(0, id).is_some(),
+            "{source:?}: {:?}",
+            found.named
+        );
+        let document = parse(source);
+        let Block::Paragraph(content) = &document.blocks[0] else {
+            panic!("{source:?}: {:?}", document.blocks);
+        };
+        assert!(
+            !content
+                .iter()
+                .any(|inline| matches!(inline, Inline::Html(_))),
+            "{source:?}: {content:?}"
+        );
+        assert_eq!(Inline::plain_text(content), words, "{source:?}");
+    }
+    // A start tag that no end tag closes stays as it is written.
+    let document = parse("<a name=\"z\">open\n");
+    let Block::Paragraph(content) = &document.blocks[0] else {
+        panic!("{:?}", document.blocks);
+    };
+    assert!(matches!(content[0], Inline::Html(_)), "{content:?}");
+}
+
+#[test]
+fn an_anchor_line_between_two_paragraphs_is_a_place_in_the_paragraph_after_it() {
+    let found = of("a\n\n<a name=\"here\"></a>\n\nb [go](#here)\n");
+    let here = found.named(0, "here").expect("the anchor is a place");
+    assert_eq!(here.range.start.path, [1]);
 }

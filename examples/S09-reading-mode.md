@@ -283,9 +283,9 @@ What is inside: a paragraph, in the text's colour,
 
 Raw HTML that kiri does not draw is its source in the code's font, muted:
 
-<div>
-  <b>HTML</b>
-</div>
+<table>
+  <tr><td><b>HTML</b></td></tr>
+</table>
 
 The text goes on below it in the proportional font.
 

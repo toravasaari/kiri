@@ -176,6 +176,10 @@ fn collect_blocks<'a>(
                 }
                 collect_blocks(blocks, (places, path), renderer, (headings, inline), wanted)
             }
+            // Its headings are laid out as top-level ones, centred.
+            Block::Centered(blocks) => {
+                collect_blocks(blocks, (places, path), renderer, (headings, inline), wanted)
+            }
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
                 collect_blocks(blocks, (places, path), renderer, (None, inline), wanted)
             }
@@ -196,7 +200,7 @@ fn collect_blocks<'a>(
                 source: Cow::Borrowed(code),
                 line: places.line(path).unwrap_or(0),
             }),
-            Block::Heading { level, content } if let Some(cell) = headings => {
+            Block::Heading { level, content, .. } if let Some(cell) = headings => {
                 wanted.push(Wanted::Heading {
                     level: *level,
                     words: heading_words(content),
@@ -247,6 +251,7 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
             | Inline::Mark(inner)
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
+            | Inline::Underline(inner)
             | Inline::Formula { written: inner, .. }
             | Inline::Link { content: inner, .. } => inline_images(inner, renderer, wanted),
             Inline::Text(_)

@@ -9,6 +9,9 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
+- The HTML heads of README files: centred titles, logos and link rows, `<a>`
+  links, and `<u>`, `<span>`, `<ins>` and `<strike>` in text. Two settings
+  choose how much HTML is read and whether unread tags show.
 - Footnotes, shown at the end of the document with links in both directions.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
@@ -20,6 +23,12 @@ kiri stays at 0.x until its command line settles.
 - Horizontal rules are narrowed to the width of the text.
 - The header above each of several files spans the whole window and has the
   status line's colour; the theme key `bar_background` sets both.
+- HTML in Markdown is read more as a browser reads it: a plain `<div>` or `<p>`
+  is its text, not source, and a heading inside a `<summary>` is read.
+
+### Fixed
+
+- Nested or stray tags in a paragraph no longer crash kiri or slow it down.
 
 ## [0.3.1] - 2026-11-23
 

@@ -90,6 +90,14 @@ impl Layout<'_> {
                 }),
                 out,
             ),
+            Inline::Underline(content) => self.inlines(
+                content,
+                &self.style(Style {
+                    underline: Underline::Single,
+                    ..style.clone()
+                }),
+                out,
+            ),
             Inline::Strikethrough(content) => self.inlines(
                 content,
                 &self.style(Style {

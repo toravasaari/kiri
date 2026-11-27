@@ -81,7 +81,7 @@ fn kitty_elements_without_colour() {
 }
 
 /// Alt text, inline and block HTML, and a link target with no clickable link.
-const MUTED_SOURCE: &str = "![alt](m.png) <u>x</u> [link](https://e.com)\n\n<div>block</div>\n";
+const MUTED_SOURCE: &str = "![alt](m.png) <q>x</q> [link](https://e.com)\n\n<table>block</table>\n";
 
 #[test]
 fn muted_text_takes_the_theme_colour_instead_of_dim() {
@@ -93,9 +93,9 @@ fn muted_text_takes_the_theme_colour_instead_of_dim() {
     let out = render(MUTED_SOURCE, &inputs(&caps, &theme));
     for muted in [
         "\x1b[0;3;38;2;128;128;128m[image: alt]",
-        "\x1b[0;38;2;128;128;128m<u>",
+        "\x1b[0;38;2;128;128;128m<q>",
         "\x1b[0;38;2;128;128;128m <https://e.com>",
-        "\x1b[0;38;2;128;128;128m<div>block</div>",
+        "\x1b[0;38;2;128;128;128m<table>block</table>",
     ] {
         assert!(out.contains(muted), "{muted:?} in {out:?}");
     }
@@ -119,9 +119,9 @@ fn muted_text_is_dimmed_without_a_muted_colour_or_colours() {
         let out = render(MUTED_SOURCE, &inputs(caps, &theme));
         for dimmed in [
             "\x1b[0;2;3m[image: alt]",
-            "\x1b[0;2m<u>",
+            "\x1b[0;2m<q>",
             "\x1b[0;2m <https://e.com>",
-            "\x1b[0;2m<div>block</div>",
+            "\x1b[0;2m<table>block</table>",
         ] {
             assert!(out.contains(dimmed), "{dimmed:?} in {out:?}");
         }

@@ -4,7 +4,7 @@ pub mod csv;
 mod footnotes;
 mod front_matter;
 mod html;
-pub use html::{InnerHeading, anchor_ids};
+pub use html::{HtmlLevel, HtmlTags, InnerHeading, anchor_ids};
 #[cfg(test)]
 mod inline_places;
 mod unknown;
@@ -14,7 +14,7 @@ use comrak::nodes::{
 };
 use comrak::{Arena, Node, Options, parse_document};
 
-use self::html::DetailsPart;
+use self::html::{Joined, Part, html_inlines};
 use self::unknown::Unknown;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
@@ -30,21 +30,65 @@ pub fn parse(source: &str) -> Document {
 /// Parses Markdown, with or without recognising `front_matter` at its
 /// start.
 pub fn parse_with(source: &str, front_matter: bool) -> Document {
-    parse_with_warnings(source, front_matter).0
+    let options = ParseOptions {
+        front_matter,
+        ..ParseOptions::default()
+    };
+    parse_with_warnings(source, &options).0
 }
 
-/// Parses Markdown as [`parse_with`] does, and tells what it leaves out:
-/// a warning for each kind of Markdown element that the document model
-/// has no place for, at the line where the first of its kind starts.
-pub fn parse_with_warnings(source: &str, front_matter: bool) -> (Document, Vec<Diagnostic>) {
-    parse_with_options(source, front_matter, &options())
+/// Parses Markdown at the level "all" of HTML, which reads `<u>` and
+/// `<center>` too: for the tests whose subject is what the tables of
+/// elements say, not the default level.
+#[cfg(test)]
+pub fn parse_all(source: &str) -> Document {
+    let options = ParseOptions {
+        html: HtmlLevel::All,
+        ..ParseOptions::default()
+    };
+    parse_with_warnings(source, &options).0
+}
+
+/// What the reading of a document depends on, as the settings give it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// Whether front matter at the start is recognised.
+    pub front_matter: bool,
+    /// The level of HTML that is read: what GitHub shows, or all that kiri
+    /// reads.
+    pub html: HtmlLevel,
+    /// Whether the tags that have no effect are shown dim or left out.
+    pub html_tags: HtmlTags,
+}
+
+impl Default for ParseOptions {
+    /// Front matter recognised and GitHub's level of HTML, as `parse` reads.
+    fn default() -> Self {
+        Self {
+            front_matter: true,
+            html: HtmlLevel::default(),
+            html_tags: HtmlTags::default(),
+        }
+    }
+}
+
+/// Parses Markdown as [`parse_with`] does with `parse_options`, and tells
+/// what it leaves out: a warning for each kind of Markdown element that the
+/// document model has no place for, at the line where the first of its kind
+/// starts.
+pub fn parse_with_warnings(
+    source: &str,
+    parse_options: &ParseOptions,
+) -> (Document, Vec<Diagnostic>) {
+    parse_with_options(source, parse_options, &options())
 }
 
 fn parse_with_options(
     source: &str,
-    front_matter: bool,
+    parse_options: &ParseOptions,
     options: &Options<'_>,
 ) -> (Document, Vec<Diagnostic>) {
+    let front_matter = parse_options.front_matter;
     let split = front_matter.then(|| front_matter::split(source)).flatten();
     let (front_matter, markdown) = match split {
         Some((front_matter, markdown)) => (Some(Block::FrontMatter(front_matter)), markdown),
@@ -52,7 +96,7 @@ fn parse_with_options(
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, options);
-    let mut unknown = Unknown::default();
+    let mut unknown = Unknown::new(parse_options.html, parse_options.html_tags);
     let (blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_bytes = source.len() - markdown.len();
@@ -258,14 +302,21 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
     let (notes, rest): (Vec<_>, Vec<_>) = parent
         .children()
         .partition(|node| matches!(node.data().value, NodeValue::FootnoteDefinition(_)));
-    let mut blocks =
-        join_details(
-            rest.into_iter()
-                .flat_map(|node| match split_at_formulas(node, unknown) {
-                    Some(blocks) => blocks,
-                    None => block(node, unknown).into_iter().collect(),
-                }),
-        );
+    // The HTML blocks and the Markdown blocks between them are read as one
+    // tree of HTML.
+    let parts = (rest.into_iter())
+        .map(|node| match &node.data().value {
+            NodeValue::HtmlBlock(block) => Part::Html {
+                literal: block.literal.clone(),
+                at: node.data().sourcepos,
+            },
+            _ => Part::Markdown(
+                (split_at_formulas(node, unknown))
+                    .unwrap_or_else(|| block(node, unknown).into_iter().collect()),
+            ),
+        })
+        .collect();
+    let mut blocks = html::read(parts, unknown.html, unknown.html_tags);
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
 }
@@ -339,175 +390,30 @@ fn paragraph_of(
     Some((Block::Paragraph(content), Position::inside(whole, line)))
 }
 
-/// `blocks` with each `<details>` in them as one block. comrak gives a
-/// `<details>` with blank lines in it as an HTML block that starts it,
-/// the blocks inside and an HTML block that ends it. One that never ends
-/// runs to the end of `blocks`, as in a browser.
-///
-/// comrak ends an HTML block only at a blank line, so a block can hold
-/// more than a `<details>` with its `<summary>`, or more than a
-/// `</details>`. A block that starts with a `<details>`, or that holds a
-/// `</details>` while one is open, is read tag by tag; the HTML between
-/// its tags is read as the body of a `<details>` in one block is.
-///
-/// A `<details>` starts where its first tag does, and the blocks read from
-/// the HTML inside it start where the HTML block they are in does.
-fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, Position)> {
-    let mut joined = Vec::new();
-    // Each `<details>` still open: its summary, its blocks so far and
-    // the HTML block its first tag is in.
-    type Open = (Option<Vec<Inline>>, Vec<(Block, Position)>, Sourcepos);
-    let mut open: Vec<Open> = Vec::new();
-    fn push(joined: &mut Vec<(Block, Position)>, open: &mut [Open], block: (Block, Position)) {
-        match open.last_mut() {
-            Some((_, blocks, _)) => blocks.push(block),
-            None => joined.push(block),
-        }
-    }
-    for (block, position) in blocks {
-        let at = position.sourcepos();
-        if let Block::Html(source) = &block {
-            if let Some(parts) = html::details_parts(source)
-                && reads_details(&parts, !open.is_empty())
-            {
-                for part in parts {
-                    match part {
-                        DetailsPart::Start(summary) => {
-                            open.push((summary.map(html_inlines), Vec::new(), at));
-                        }
-                        DetailsPart::End(tag) => match open.pop() {
-                            Some((summary, blocks, first)) => {
-                                let end = Some(at.end);
-                                let block = details(summary, blocks, first, end);
-                                push(&mut joined, &mut open, block);
-                            }
-                            // A `</details>` with none open stays source.
-                            None => push(
-                                &mut joined,
-                                &mut open,
-                                (
-                                    Block::Html(tag.to_owned()),
-                                    Position::inside(at, at.start.line),
-                                ),
-                            ),
-                        },
-                        DetailsPart::Html(body) => {
-                            for block in details_body(body) {
-                                push(
-                                    &mut joined,
-                                    &mut open,
-                                    (block, Position::inside(at, at.start.line)),
-                                );
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            // A `<summary>` after a blank line is still the summary when
-            // nothing came before it.
-            if let Some((summary @ None, blocks, _)) = open.last_mut()
-                && blocks.is_empty()
-                && let Some(content) = html::summary(source)
-            {
-                *summary = Some(html_inlines(content));
-                continue;
-            }
-        }
-        push(&mut joined, &mut open, (block, position));
-    }
-    while let Some((summary, blocks, first)) = open.pop() {
-        push(
-            &mut joined,
-            &mut open,
-            details(summary, blocks, first, None),
-        );
-    }
-    joined
-}
-
-/// Whether `join_details` reads an HTML block of `parts` tag by tag: when
-/// it starts with a `<details>`, or holds a `</details>` and one is `open`.
-fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
-    match parts {
-        [DetailsPart::Start(_), ..] => true,
-        _ => open && (parts.iter()).any(|part| matches!(part, DetailsPart::End(_))),
-    }
-}
-
-/// A `<details>` with `summary`, or with the one a browser gives it
-/// without, that starts where the HTML block `first` does and ends with
-/// the HTML block that closes it, which ends at `end`, or else with the
-/// last block inside it.
-fn details(
-    summary: Option<Vec<Inline>>,
-    blocks: Vec<(Block, Position)>,
-    first: Sourcepos,
-    end: Option<comrak::nodes::LineColumn>,
-) -> (Block, Position) {
-    let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
-    let block = Block::Details {
-        summary: summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]),
-        blocks,
-    };
-    let end = end
-        .or_else(|| children.last().map(|last| last.sourcepos().end))
-        .unwrap_or(first.end);
-    let position = Position {
-        at: Some(Found {
-            sourcepos: Sourcepos {
-                start: first.start,
-                end,
-            },
-            line: first.start.line,
-            extent: Extent::Exact,
-        }),
-        children,
-    };
-    (block, position)
-}
-
-/// The blocks of HTML inside a `<details>` that is not Markdown: what
-/// `html_element` reads, or its text as one paragraph.
-fn details_body(body: &str) -> Vec<Block> {
-    if let Some(block) = html_element(body) {
-        return vec![block];
-    }
-    match html::plain_text(body) {
-        Some(text) if !text.is_empty() => vec![Block::Paragraph(vec![Inline::Text(text)])],
-        _ => Vec::new(),
-    }
-}
-
-/// The block that an HTML block of one element is: an image, a heading or
-/// a code block.
-fn html_element(html: &str) -> Option<Block> {
-    if let Some(img) = html::block_img(html) {
-        return Some(Block::Paragraph(vec![linked_image(img)]));
-    }
-    if let Some((level, content)) = html::heading(html) {
-        return Some(Block::Heading {
-            level,
-            content: html_inlines(content),
-        });
-    }
-    let (language, code) = html::pre(html)?;
-    Some(Block::CodeBlock {
-        language,
-        code: code.into(),
-        whole_file: false,
-    })
-}
-
 // Block types without a model counterpart yet are skipped.
 fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     let mut children = Vec::new();
     let block = match &node.data().value {
-        NodeValue::Heading(heading) => Block::Heading {
-            level: heading.level,
-            content: inlines(node, unknown),
-        },
-        NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
+        NodeValue::Heading(heading) => {
+            unknown.hid = false;
+            let content = inlines(node, unknown);
+            if emptied(node, draws_nothing(&content) && unknown.hid, unknown) {
+                return None;
+            }
+            Block::Heading {
+                level: heading.level,
+                content,
+                id: None,
+            }
+        }
+        NodeValue::Paragraph => {
+            unknown.hid = false;
+            let content = inlines(node, unknown);
+            if emptied(node, draws_nothing(&content) && unknown.hid, unknown) {
+                return None;
+            }
+            Block::Paragraph(content)
+        }
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.as_str().into(),
@@ -515,11 +421,17 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         },
         NodeValue::BlockQuote => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+            if emptied(node, blocks.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::BlockQuote(blocks)
         }
         NodeValue::Alert(alert) => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+            if emptied(node, blocks.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::Alert {
                 kind: match alert.alert_type {
@@ -536,7 +448,12 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             }
         }
         NodeValue::List(list) => {
-            let (items, positions) = node.children().map(|item| list_item(item, unknown)).unzip();
+            let (items, positions): (Vec<_>, Vec<_>) = (node.children())
+                .filter_map(|item| list_item(item, unknown))
+                .unzip();
+            if emptied(node, items.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::List(List {
                 start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
@@ -547,9 +464,6 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
         NodeValue::ThematicBreak(_) => Block::ThematicBreak,
-        NodeValue::HtmlBlock(block) => {
-            html_element(&block.literal).unwrap_or_else(|| Block::Html(block.literal.clone()))
-        }
         _ => {
             unknown.note(node);
             return None;
@@ -562,14 +476,44 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     Some((block, position))
 }
 
-fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
+/// Whether the block `node` is left out: hiding the tags emptied it, and it
+/// held something as written. What was empty as written stays.
+fn emptied(node: Node<'_>, empty: bool, unknown: &Unknown) -> bool {
+    empty && unknown.html_tags == HtmlTags::Hide && node.first_child().is_some()
+}
+
+/// Whether `content` draws nothing: it is empty, or only line breaks, and
+/// emphasis or a link with nothing in them, as hiding the tags of a paragraph
+/// can leave it.
+fn draws_nothing(content: &[Inline]) -> bool {
+    content.iter().all(|inline| match inline {
+        Inline::SoftBreak | Inline::LineBreak => true,
+        Inline::Text(text) => text.bytes().all(|b| b.is_ascii_whitespace()),
+        Inline::Emphasis(inner)
+        | Inline::Strong(inner)
+        | Inline::Strikethrough(inner)
+        | Inline::Kbd(inner)
+        | Inline::Mark(inner)
+        | Inline::Subscript(inner)
+        | Inline::Superscript(inner)
+        | Inline::Underline(inner)
+        | Inline::Link { content: inner, .. } => draws_nothing(inner),
+        _ => false,
+    })
+}
+
+/// An item of a list, or `None` when hiding the tags left it with nothing.
+fn list_item(node: Node<'_>, unknown: &mut Unknown) -> Option<(ListItem, Position)> {
     let checked = match &node.data().value {
         NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
         _ => None,
     };
     let (blocks, children): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+    if emptied(node, blocks.is_empty(), unknown) {
+        return None;
+    }
     let position = Position { at: None, children };
-    (ListItem { checked, blocks }, position)
+    Some((ListItem { checked, blocks }, position))
 }
 
 fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {
@@ -603,7 +547,7 @@ fn inlines(parent: Node<'_>, unknown: &mut Unknown) -> Vec<Inline> {
 }
 
 fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) -> Vec<Inline> {
-    let mut inlines = Vec::new();
+    let mut joined = Joined::new(unknown.html, unknown.html_tags);
     // Whether the last node was math read as text, which the text around
     // it joins.
     let mut after_math = false;
@@ -611,24 +555,29 @@ fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) 
         if let NodeValue::Math(math) = &node.data().value {
             if math.display_math {
                 for inline in math_as_written(math) {
-                    push_joined(&mut inlines, inline);
+                    joined.push_joined(inline);
                 }
                 after_math = true;
             } else {
-                inlines.push(Inline::Formula {
+                joined.push(Inline::Formula {
                     source: formula_source(&math.literal),
                     written: math_as_written(math),
                 });
                 after_math = false;
             }
+        } else if let NodeValue::HtmlInline(tag) = &node.data().value {
+            joined.push_html(tag.clone());
+            after_math = false;
         } else if let Some(inline) = inline(node, unknown) {
             match after_math {
-                true => push_joined(&mut inlines, inline),
-                false => push_inline(&mut inlines, inline),
+                true => joined.push_joined(inline),
+                false => joined.push(inline),
             }
             after_math = false;
         }
     }
+    let (inlines, hid) = joined.into_inlines_and_hid();
+    unknown.hid |= hid;
     inlines
 }
 
@@ -652,18 +601,10 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &options_without_math());
     // Nothing here is Markdown that the parser reads, so nothing is left out.
-    let mut unknown = Unknown::default();
+    let mut unknown = Unknown::new(HtmlLevel::default(), HtmlTags::default());
     (root.first_child())
         .map(|paragraph| inlines(paragraph, &mut unknown))
         .unwrap_or_default()
-}
-
-/// Pushes `inline`, joining it to the text before it when both are text.
-fn push_joined(inlines: &mut Vec<Inline>, inline: Inline) {
-    match (inlines.last_mut(), inline) {
-        (Some(Inline::Text(before)), Inline::Text(text)) => before.push_str(&text),
-        (_, inline) => push_inline(inlines, inline),
-    }
 }
 
 /// The `<h1>` to `<h6>` elements in the block of HTML `source`, with the
@@ -672,85 +613,13 @@ fn push_joined(inlines: &mut Vec<Inline>, inline: Inline) {
 pub fn html_headings(source: &str) -> Vec<InnerHeading> {
     let mut found = html::headings(source);
     for heading in &mut found {
-        heading.content = html_inlines(std::mem::take(&mut heading.content));
+        heading.content = html_inlines(
+            std::mem::take(&mut heading.content),
+            HtmlLevel::default(),
+            HtmlTags::default(),
+        );
     }
     found
-}
-
-/// Text and inline HTML, as `html` gives the content of a `<summary>`,
-/// with the tags kiri reads read.
-fn html_inlines(content: Vec<Inline>) -> Vec<Inline> {
-    let mut inlines = Vec::new();
-    for inline in content {
-        let inline = match inline {
-            Inline::Html(tag) => html_inline(tag),
-            inline => inline,
-        };
-        push_inline(&mut inlines, inline);
-    }
-    inlines
-}
-
-/// Pushes `inline`, joining it with the inlines before it into the
-/// element that HTML tags among them make.
-fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
-    inlines.push(inline);
-    // `<a href>`, an `<img>` and `</a>` are a link around the image, as
-    // `[![]()]()` is.
-    if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
-        && html::is_link_end(end)
-        && let Some(url) = html::link_start(start)
-    {
-        inlines.pop();
-        let image = inlines.pop().expect("the image");
-        inlines.pop();
-        inlines.push(Inline::Link {
-            url,
-            title: None,
-            content: vec![image],
-        });
-    }
-    // A closing tag such as `</kbd>` ends the element its last opening
-    // tag among these inlines started.
-    if let Some(Inline::Html(end)) = inlines.last()
-        && let Some(phrase) = html::phrase_end(end)
-        && let Some(start) = inlines.iter().rposition(|inline| {
-            matches!(inline, Inline::Html(start) if html::phrase_start(start) == Some(phrase))
-        })
-    {
-        // `<code>` is code only around plain text; else both tags stay.
-        let code = match phrase {
-            html::Phrase::Code => match only_text(&inlines[start + 1..inlines.len() - 1]) {
-                Some(code) => code,
-                None => return,
-            },
-            _ => String::new(),
-        };
-        inlines.pop();
-        let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
-        inlines.push(match phrase {
-            html::Phrase::Kbd => Inline::Kbd(content),
-            html::Phrase::Mark => Inline::Mark(content),
-            html::Phrase::Sub => Inline::Subscript(content),
-            html::Phrase::Sup => Inline::Superscript(content),
-            html::Phrase::B | html::Phrase::Strong => Inline::Strong(content),
-            html::Phrase::I | html::Phrase::Em => Inline::Emphasis(content),
-            html::Phrase::S | html::Phrase::Del => Inline::Strikethrough(content),
-            html::Phrase::Code => Inline::Code(code),
-        });
-    }
-}
-
-/// The text of `inlines` when they are only non-empty text.
-fn only_text(inlines: &[Inline]) -> Option<String> {
-    let mut text = String::new();
-    for inline in inlines {
-        match inline {
-            Inline::Text(part) => text.push_str(part),
-            _ => return None,
-        }
-    }
-    (!text.is_empty()).then_some(text)
 }
 
 fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
@@ -775,51 +644,11 @@ fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
         }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
-        NodeValue::HtmlInline(tag) => html_inline(tag.clone()),
         NodeValue::FootnoteReference(reference) => footnotes::reference(reference),
         _ => {
             unknown.note(node);
             return None;
         }
-    })
-}
-
-/// One tag of inline HTML: a line break, an image, or else the tag.
-fn html_inline(tag: String) -> Inline {
-    if html::is_line_break(&tag) {
-        return Inline::LineBreak;
-    }
-    match html::inline_img(&tag) {
-        Some(img) => image(img),
-        None => Inline::Html(tag),
-    }
-}
-
-/// An HTML `<img>` as Markdown would give it: the image, or a link around
-/// it when the HTML had one.
-fn linked_image(mut img: html::Img) -> Inline {
-    match img.link.take() {
-        Some(url) => Inline::Link {
-            url,
-            title: None,
-            content: vec![image(img)],
-        },
-        None => image(img),
-    }
-}
-
-/// An HTML `<img>` as the image Markdown would give.
-fn image(img: html::Img) -> Inline {
-    let alt = if img.alt.is_empty() {
-        Vec::new()
-    } else {
-        vec![Inline::Text(img.alt)]
-    };
-    Inline::Image(Image {
-        url: img.src,
-        alt,
-        width: img.width,
-        height: img.height,
     })
 }
 

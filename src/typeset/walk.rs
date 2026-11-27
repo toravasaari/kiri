@@ -4,8 +4,9 @@
 //! happened to the layout since.
 //!
 //! A piece is a block, the summary of a `<details>` (its blocks are pieces of
-//! their own, one step deeper), a file's header, or a stretch of a code block
-//! that the pen lays out in parts.
+//! their own, one step deeper), a centred wrapper that the pen cuts (the same),
+//! a file's header, or a stretch of a code block that the pen lays out in
+//! parts.
 //!
 //! The place is a `Place` that is owned and can be kept. `Walk::next` gives the
 //! piece at a place and the place after it, and the driver walks a file by it.
@@ -79,14 +80,21 @@ impl<'d> Walk<'d> {
     /// The block at `path`, as a piece sees it: a `<details>` is its summary.
     pub(crate) fn block(&self, path: &[usize]) -> Option<&'d Block> {
         let (last, parents) = path.split_last()?;
+        self.list(parents)?.get(*last)
+    }
+
+    /// The blocks that the path `parents` leads into, which is the file's
+    /// own for the empty path. Only the blocks of a `<details>` and of a
+    /// centred wrapper are pieces of their own.
+    fn list(&self, parents: &[usize]) -> Option<&'d [Block]> {
         let mut list = self.blocks;
         for &step in parents {
             match list.get(step)? {
-                Block::Details { blocks, .. } => list = blocks,
+                Block::Details { blocks, .. } | Block::Centered(blocks) => list = blocks,
                 _ => return None,
             }
         }
-        list.get(*last)
+        Some(list)
     }
 
     /// `at` moved on past the blocks that end: where the next piece is, or
@@ -95,13 +103,7 @@ impl<'d> Walk<'d> {
         let mut at = at.clone();
         loop {
             let (last, parents) = at.path.split_last()?;
-            let mut list = self.blocks;
-            for &step in parents {
-                match list.get(step) {
-                    Some(Block::Details { blocks, .. }) => list = blocks,
-                    _ => return None,
-                }
-            }
+            let list = self.list(parents)?;
             if *last < list.len() {
                 return Some(at);
             }
@@ -185,6 +187,10 @@ impl<'d> Walk<'d> {
                 },
                 following(&here.path, Some(0)),
             ),
+            Block::Centered(_) if cuts(block) => (Shape::Wrapper, following(&here.path, Some(0))),
+            _ if block.is_centred_in_wrapper() && self.in_wrapper(&here.path) => {
+                (Shape::Centred(block), following(&here.path, None))
+            }
             _ => (Shape::Block(block), following(&here.path, None)),
         };
         Some((
@@ -194,6 +200,17 @@ impl<'d> Walk<'d> {
             },
             after,
         ))
+    }
+
+    /// Whether the block at `path` is one of the blocks of a centred
+    /// wrapper. The walk goes into a wrapper only when the pen cuts it, so
+    /// a path inside one is the pen's own.
+    fn in_wrapper(&self, path: &[usize]) -> bool {
+        let Some((_, parents)) = path.split_last() else {
+            return false;
+        };
+        self.block(parents)
+            .is_some_and(|parent| matches!(parent, Block::Centered(_)))
     }
 
     /// The stretch of the long table `table` at `here`, and the place after
@@ -273,6 +290,8 @@ mod tests {
                 Shape::Header(name) => format!("header {name}"),
                 Shape::Block(_) => format!("block {:?}", piece.path),
                 Shape::Summary { .. } => format!("summary {:?}", piece.path),
+                Shape::Wrapper => format!("wrapper {:?}", piece.path),
+                Shape::Centred(_) => format!("centred {:?}", piece.path),
                 Shape::Stretch(stretch) => {
                     format!("stretch {:?} {}", piece.path, stretch.offset)
                 }

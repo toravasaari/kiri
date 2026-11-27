@@ -1143,3 +1143,44 @@ fn a_line_that_shows_nothing_of_the_document_has_no_first_place_and_the_end_has_
         assert_eq!(map.first_on(first), Some(&text), "{engine:?}");
     }
 }
+
+#[test]
+fn a_centred_wrapper_is_found_by_its_own_path_in_both_engines() {
+    let source =
+        "Before\n\n<div align=\"center\">\n\n# Title\n\nText in the wrapper.\n\n</div>\n\nAfter\n";
+    let document = parse(source);
+    let targets = crate::typeset::targets::targets([&document]);
+    let mut tables = Vec::new();
+    for engine in [Engine::Text(80), Engine::Reading(80, Wide::Scroll)] {
+        let inputs = inputs(engine, FrontMatterStyle::Table);
+        let stream = content(Content::Document(&document), &inputs);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let table: Vec<Vec<usize>> = (stream.blocks.ids())
+            .map(|id| stream.blocks.path(id).to_vec())
+            .collect();
+        tables.push(table);
+        let wrapper = Pos::block(0, &[1])..Pos::end(0, &[1]);
+        let line = |pos: &Pos| map.line_of(pos);
+        // It starts where its first block does and ends where the next
+        // block starts, as a jump, a saved place or a selection takes it.
+        assert_eq!(
+            line(&wrapper.start),
+            line(&Pos::block(0, &[1, 0])),
+            "{engine:?}"
+        );
+        assert_eq!(line(&wrapper.end), line(&Pos::block(0, &[2])), "{engine:?}");
+        let title = targets.named(0, "title").expect("the heading's place");
+        assert_eq!(line(&title.range.start), line(&wrapper.start), "{engine:?}");
+        // Its range, as a search hit or a selection over it, is laid out
+        // and found on the lines of its blocks.
+        assert!(!map.not_laid_out(&wrapper), "{engine:?}");
+        let parts = map.locate(&stream.lines, &wrapper).expect("laid out");
+        assert!(!parts.is_empty(), "{engine:?}");
+        assert!(
+            parts.iter().all(|part| part.piece.path().starts_with(&[1])),
+            "{engine:?}: {parts:?}"
+        );
+    }
+    assert_eq!(tables[0], tables[1]);
+    assert!(tables[0].contains(&vec![1]), "{:?}", tables[0]);
+}

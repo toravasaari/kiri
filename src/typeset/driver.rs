@@ -250,6 +250,13 @@ pub(crate) enum Shape<'a> {
         /// The number of the summary among the texts of the block.
         number: Option<usize>,
     },
+    /// A centred wrapper that the pen lays out as its blocks, which are
+    /// pieces of their own, one step deeper. The wrapper itself has no
+    /// lines, only its place in the table of blocks.
+    Wrapper,
+    /// A block of a centred wrapper that the wrapper centres: a paragraph,
+    /// a heading or a code block, as `Block::is_centred_in_wrapper` says.
+    Centred(&'a Block),
     /// The header of a file, when files are shown together.
     Header(&'a str),
     /// A part of a large code block, which goes on from the part before it:
@@ -274,8 +281,9 @@ impl Shape<'_> {
 }
 
 /// A piece of the document: a block, or the summary of a `<details>`, or a
-/// file's header, which the lines of the layout mark as their own
-/// (`Line::block`), with its place in the document.
+/// centred wrapper that the pen lays out as its blocks, or a file's header,
+/// which the lines of the layout mark as their own (`Line::block`), with
+/// its place in the document.
 pub(crate) struct Piece<'a> {
     pub shape: Shape<'a>,
     /// The place of the piece's block in the document, as the table of
@@ -1376,8 +1384,8 @@ type Keep<'a> = &'a mut dyn FnMut(Vec<usize>, Wants);
 
 /// Hands `keep` the place and what its columns ask for of each long table
 /// among `blocks`, at `path`, that `wanted` says, and that the walk can
-/// cut: one of the file's own blocks, or of a `<details>`, and not one
-/// inside a quote or a list, which is laid out whole.
+/// cut: one of the file's own blocks, or of a `<details>` or a centred
+/// wrapper, and not one inside a quote or a list, which is laid out whole.
 fn fit_blocks(
     cells: &Cells,
     blocks: &[Block],
@@ -1392,7 +1400,9 @@ fn fit_blocks(
                     keep(path.clone(), wants);
                 }
             }
-            Block::Details { blocks, .. } => fit_blocks(cells, blocks, path, (wanted, keep)),
+            Block::Details { blocks, .. } | Block::Centered(blocks) => {
+                fit_blocks(cells, blocks, path, (wanted, keep));
+            }
             _ => {}
         }
         path.pop();
@@ -1473,7 +1483,7 @@ fn hide_front_matter(
         {
             blocks.hide(id);
         }
-        if let Block::Details { blocks: inside, .. } = block {
+        if let Block::Details { blocks: inside, .. } | Block::Centered(inside) = block {
             hide_front_matter(blocks, number, inside, path, inputs);
         }
         path.pop();

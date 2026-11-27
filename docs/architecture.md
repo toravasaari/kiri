@@ -17,17 +17,24 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
 ```
 
 - **Parse:** [comrak](https://crates.io/crates/comrak) turns the source into
-  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads a few
-  HTML tags in it itself: `<img>`, so an image means the same in the model
-  whether Markdown or HTML wrote it, and `<details>`, `<summary>`, `<kbd>`,
-  `<mark>`, `<sub>`, `<sup>`, `<br>`, `<h1>` to `<h6>` and `<pre>` alone in a
-  block, and `<b>`, `<strong>`, `<i>`, `<em>`, `<s>`, `<del>` and `<code>` in
-  running text. Front matter at the start of a
-  Markdown file is split off in `src/typeset/parse/front_matter.rs` before comrak
-  sees the text and read as YAML, TOML or JSON into the model's own value
-  tree; `--front-matter off` leaves it to comrak. A formula in `$$…$$`
-  becomes a code block in `math`, as a ` ```math ` block is, so that a
-  backend that cannot draw it shows its source.
+  a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads the HTML
+  in it itself, in `src/typeset/parse/html/`: the tags of each HTML block
+  become tokens (`html.rs`), and the tokens and the Markdown blocks between
+  them make one tree of block elements (`tree.rs`), so an element is read
+  whole whatever blank lines cut it. `blocks.rs` turns that tree into blocks
+  of the model, and `inline.rs` joins the tags of running text into inlines.
+  Both decide by the table of elements (`elements.rs`, one row for each
+  element) and by the setting `html`: GitHub's level, the default, or `all`,
+  which also reads `<u>` and `<center>`. An `<img>` in HTML is the same
+  image as one in Markdown. A tag with no effect at the level, one kiri does
+  not know, or a broken one is drawn dim, or left out with
+  `html_tags = "hide"`, and what it holds is read as it would be without it.
+  Front matter at the start of a Markdown file is split off in
+  `src/typeset/parse/front_matter.rs` before comrak sees the text and read
+  as YAML, TOML or JSON into the model's own value tree;
+  `--front-matter off` leaves it to comrak. A formula in `$$…$$` becomes a
+  code block in `math`, as a ` ```math ` block is, so that a backend that
+  cannot draw it shows its source.
 - **Document model:** kiri's own tree of blocks and inline spans. It holds
   what the document means (heading level 2, emphasis, image with alt text),
   not how any terminal draws it. Other input formats only need a converter
@@ -544,31 +551,29 @@ it is shown as its source, as the other layouts show it. An alert is a
 tint, a bar, a title after the kind's icon, which is drawn from an
 embedded Octicon outline (`src/typeset/reading/octicons.rs`), and the
 blocks inside it in the room left.
-Front matter is a table of its keys and values in the column, with a
-table in a cell for a value that has keys, or a code block when the
-front matter shows as code. A `<details>` block is its summary after a
-triangle and its blocks, each with a place of its own for the pager; raw
-HTML is its source, and a note of kiri's own is muted text. What is left
-as text between the pages, a file's header, a file's error message and an
-image file shown on its own, starts at the area's left edge and is as wide as the text's column:
-only code blocks and tables reach into the area. A code
-block or table wider than the area wraps to fit it, or, with `--wide
-scroll` in the pager, or after `W` there, becomes a band on whole rows of
-its own, which keeps its lines and words whole and scrolls sideways under
-a thin scroll bar, faded on each edge with more beyond it; a code band's
-language stays in its top right corner. Its rows show an image of their
-own, cut into slices of at most 30 rows as pages are, keyed by its slice,
-its offset and whether it is selected. The pager keeps those by the
-band's block, which the layout's map gives, in `src/session/bands.rs`:
-the topmost band on the screen is selected until a click, or a search
-that finds something in another,
-selects it, ← and → or `H`
-and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
-over a band, and the pager then shows the same lines with the band's rows
-keyed anew, without laying the document out again. Where the terminal
-draws no images, kiri warns and shows the text as usual. In the pager,
-`M` turns reading mode on and off and lays the document out again,
-keeping the block at the top as a resize does.
+Front matter is a table of its keys and values in the column, with a table in a
+cell for a value that has keys, or a code block when the front matter shows as
+code. A `<details>` block is its summary after a triangle and its blocks, each
+with a place of its own for the pager; raw HTML that is not read is its source,
+and a note of kiri's own is muted text. What is left as text between the pages,
+a file's header, a file's error message and an image file shown on its own,
+starts at the area's left edge and is as wide as the text's column: only code
+blocks and tables reach into the area. A code block or table wider than the
+area wraps to fit it, or, with `--wide scroll` in the pager, or after `W`
+there, becomes a band on whole rows of its own, which keeps its lines and words
+whole and scrolls sideways under a thin scroll bar, faded on each edge with
+more beyond it; a code band's language stays in its top right corner. Its rows
+show an image of their own, cut into slices of at most 30 rows as pages are,
+keyed by its slice, its offset and whether it is selected. The pager keeps
+those by the band's block, which the layout's map gives, in
+`src/session/bands.rs`: the topmost band on the screen is selected until a
+click, or a search that finds something in another, selects it, ← and → or `H`
+and `L` scroll it, and so does a sideways wheel, or the wheel with Shift, over
+a band, and the pager then shows the same lines with the band's rows keyed
+anew, without laying the document out again. Where the terminal draws no
+images, kiri warns and shows the text as usual. In the pager, `M` turns reading
+mode on and off and lays the document out again, keeping the block at the top
+as a resize does.
 
 A page is drawn opaque when the theme gives it a background whose colour
 is known. Then all of its text is blended by kiri over the same ground,

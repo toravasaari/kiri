@@ -206,7 +206,7 @@ fn html_headings_named(
         .into_iter()
         .map(|inner| Named {
             range: at(0, inner.bytes.clone()),
-            id: inner.id.unwrap_or_else(|| ids.of(&inner.content)),
+            id: ids.of_heading(inner.id.as_deref(), &inner.content),
             kind: NamedKind::Heading,
             inner: Some(Inner {
                 level: inner.level,
@@ -284,9 +284,9 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
             });
             let whole = || Pos::block(file, &path)..Pos::end(file, &path);
             match block {
-                Block::Heading { content, .. } => found.named.push(Named {
+                Block::Heading { content, id, .. } => found.named.push(Named {
                     range: whole(),
-                    id: ids.of(content),
+                    id: ids.of_heading(id.as_deref(), content),
                     kind: NamedKind::Heading,
                     inner: None,
                 }),

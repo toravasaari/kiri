@@ -2,16 +2,37 @@
 
 use comrak::Node;
 
+use super::{HtmlLevel, HtmlTags};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 
 /// The kinds of Markdown element that the parser found and has no place
-/// for in the document model, each with the line it first starts on.
+/// for in the document model, each with the line it first starts on. It is
+/// also what every function of the parser is given besides the nodes, so
+/// that it carries the level of HTML that is read.
 #[derive(Default)]
 pub(super) struct Unknown {
     found: Vec<(String, usize)>,
+    /// The level of HTML that is read.
+    pub(super) html: HtmlLevel,
+    /// What becomes of the tags that have no effect.
+    pub(super) html_tags: HtmlTags,
+    /// Whether hiding the tags has left one out of the inlines read since it
+    /// was last cleared: a block that hiding empties is one that lost a tag.
+    pub(super) hid: bool,
 }
 
 impl Unknown {
+    /// Nothing is left out yet; the HTML read is that of `html`, and its
+    /// tags with no effect are as `html_tags` says.
+    pub(super) fn new(html: HtmlLevel, html_tags: HtmlTags) -> Self {
+        Self {
+            found: Vec::new(),
+            html,
+            html_tags,
+            hid: false,
+        }
+    }
+
     /// Notes that `node` is left out of the document.
     pub(super) fn note(&mut self, node: Node<'_>) {
         let name = name(&format!("{:?}", node.data().value));
@@ -53,7 +74,7 @@ fn name(debug: &str) -> String {
 mod tests {
     use comrak::Options;
 
-    use super::super::{options, parse_with_options, parse_with_warnings};
+    use super::super::{ParseOptions, options, parse_with_options, parse_with_warnings};
     use crate::typeset::diagnostic::{Code, Diagnostic};
 
     /// The options kiri parses with, and in addition the Markdown that
@@ -67,7 +88,7 @@ mod tests {
     /// The warnings for `source` read with `wider` options, as the lines
     /// that standard error would tell.
     fn told(source: &str) -> Vec<String> {
-        let (_, warnings) = parse_with_options(source, true, &wider());
+        let (_, warnings) = parse_with_options(source, &ParseOptions::default(), &wider());
         warnings.iter().map(ToString::to_string).collect()
     }
 
@@ -105,7 +126,8 @@ mod tests {
 
     #[test]
     fn the_pager_line_gives_the_line_in_front_and_not_in_the_text() {
-        let (_, warnings) = parse_with_options("Term\n: Detail\n", true, &wider());
+        let (_, warnings) =
+            parse_with_options("Term\n: Detail\n", &ParseOptions::default(), &wider());
         let warning: &Diagnostic = &warnings[0];
         assert_eq!(warning.code, Code::Markdown);
         assert_eq!(warning.line, Some(1));
@@ -118,6 +140,10 @@ mod tests {
     #[test]
     fn the_syntax_kiri_reads_today_leaves_nothing_out() {
         let source = "# H\n\nTerm\n: not a list\n\n- [x] done\n\n$x$ and :tada:\n";
-        assert!(parse_with_warnings(source, true).1.is_empty());
+        assert!(
+            parse_with_warnings(source, &ParseOptions::default())
+                .1
+                .is_empty()
+        );
     }
 }

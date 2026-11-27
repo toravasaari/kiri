@@ -17,6 +17,7 @@ impl Flow<'_> {
             line_height: look.spacing.heading_line_height,
             weight: look.spacing.bold,
             color: look.headings[index],
+            align: self.align(),
             ..text::Look::PLAIN
         };
         let ink = self.ink(width);
@@ -38,7 +39,9 @@ const SNAPPED_LEVELS: u8 = 4;
 const SNAP_SLACK: f32 = 0.01;
 
 /// Whether `block` starts on a whole row with `snap_to_rows`: a heading
-/// of the levels that are places to jump to.
+/// of the levels that are places to jump to. A heading in a centred
+/// wrapper is one too, as every block of a wrapper comes to the page as a
+/// piece of its own.
 pub(super) fn snaps(block: &Block) -> bool {
     matches!(block, Block::Heading { level, .. } if *level <= SNAPPED_LEVELS)
 }

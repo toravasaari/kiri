@@ -57,9 +57,20 @@ pub(super) fn runs_into(runs: &mut Vec<Run>, content: &[Inline], look: &Look, in
 fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mut Vec<Run>) {
     for inline in content {
         match inline {
-            Inline::Text(text) | Inline::Html(text) => {
+            Inline::Text(text) => {
                 push_from(runs, text, style, ink.took(text.len()));
             }
+            // A tag that has no effect is shown dim, in the colour of a
+            // quote's text, as the cell layout mutes it.
+            Inline::Html(tag) => push_from(
+                runs,
+                tag,
+                &Run {
+                    color: Some(look.quote),
+                    ..style.clone()
+                },
+                ink.took(tag.len()),
+            ),
             Inline::Code(code) => push_from(
                 runs,
                 code,
@@ -89,6 +100,17 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                     inner,
                     &Run {
                         bold: true,
+                        ..style.clone()
+                    },
+                    (look, ink),
+                    runs,
+                );
+            }
+            Inline::Underline(inner) => {
+                collect(
+                    inner,
+                    &Run {
+                        underline: true,
                         ..style.clone()
                     },
                     (look, ink),
@@ -273,7 +295,21 @@ fn whole(run: Run, doc: &Doc) -> Run {
 }
 
 fn same_style(a: &Run, b: &Run) -> bool {
-    (a.bold, a.italic, a.code, a.strike, a.color, &a.link)
-        == (b.bold, b.italic, b.code, b.strike, b.color, &b.link)
-        && (a.background, a.script) == (b.background, b.script)
+    (
+        a.bold,
+        a.italic,
+        a.code,
+        a.strike,
+        a.underline,
+        a.color,
+        &a.link,
+    ) == (
+        b.bold,
+        b.italic,
+        b.code,
+        b.strike,
+        b.underline,
+        b.color,
+        &b.link,
+    ) && (a.background, a.script) == (b.background, b.script)
 }

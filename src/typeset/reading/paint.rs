@@ -288,20 +288,55 @@ impl<'a> Canvas<'a> {
                         colour,
                     );
                 }
-                if glyphs.style().strikethrough.is_some() {
-                    let metrics = run.font_metrics();
-                    let thickness = metrics.strikethrough_size.max(1.0);
-                    // One line for each stretch of equal drop.
-                    let stretches = stretches(paragraph, start, &clusters);
-                    let mut left = x + glyphs.offset();
-                    for (drop, width) in stretches {
-                        let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
-                        let mask = over.map(|(_, mask)| mask);
-                        self.rect_masked((left, top, width, thickness), color, mask);
-                        left += width;
-                    }
-                }
+                let mask = over.map(|(_, mask)| mask);
+                self.rules(
+                    paragraph,
+                    (start, &clusters),
+                    (x, y, &glyphs),
+                    (color, mask),
+                );
             }
+        }
+    }
+
+    /// Draws the underline and the line through of a glyph run that has
+    /// them, in `color`.
+    fn rules<B: parley::Brush>(
+        &mut self,
+        paragraph: &Paragraph,
+        (start, clusters): (usize, &[parley::Cluster<'_, B>]),
+        (x, y, glyphs): (f32, f32, &parley::GlyphRun<'_, B>),
+        (color, mask): (Brush, Option<&tiny_skia::Mask>),
+    ) {
+        let run = glyphs.run();
+        let line = |offset: f32, size: f32| LineAlong {
+            stretches: stretches(paragraph, start, clusters),
+            left: x + glyphs.offset(),
+            baseline: y + glyphs.baseline(),
+            offset,
+            thickness: size.max(1.0),
+        };
+        let metrics = run.font_metrics();
+        if glyphs.style().underline.is_some() {
+            self.line_along(
+                line(metrics.underline_offset, metrics.underline_size),
+                color,
+                mask,
+            );
+        }
+        if glyphs.style().strikethrough.is_some() {
+            let size = metrics.strikethrough_size;
+            self.line_along(line(metrics.strikethrough_offset, size), color, mask);
+        }
+    }
+
+    /// Draws `line`, one rule for each stretch of equal drop.
+    fn line_along(&mut self, line: LineAlong, color: Brush, mask: Option<&tiny_skia::Mask>) {
+        let mut left = line.left;
+        for (drop, width) in line.stretches {
+            let top = line.baseline + drop - line.offset;
+            self.rect_masked((left, top, width, line.thickness), color, mask);
+            left += width;
         }
     }
 
@@ -664,6 +699,17 @@ impl OutlinePen for Pen<'_> {
     fn close(&mut self) {
         self.path.close();
     }
+}
+
+/// A rule along text: an underline or a line through it.
+struct LineAlong {
+    /// The stretches of equal drop, each with its drop and width.
+    stretches: Vec<(f32, f32)>,
+    left: f32,
+    baseline: f32,
+    /// How far above the baseline the rule is, and how thick.
+    offset: f32,
+    thickness: f32,
 }
 
 /// The stretches of `clusters` with the same drop, each with its drop and
