@@ -65,6 +65,8 @@ class History(unittest.TestCase):
             self.assertEqual(st.load_history(path), {})
             path.write_text("{not json")
             self.assertEqual(st.load_history(path), {})
+            path.write_text("[1]")
+            self.assertEqual(st.load_history(path), {})
 
 
 class Update(unittest.TestCase):

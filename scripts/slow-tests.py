@@ -42,9 +42,10 @@ def load_history(path):
     """The history saved at path; an empty one when the file is missing or
     cannot be read."""
     try:
-        return json.loads(path.read_text())
+        history = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
+    return history if isinstance(history, dict) else {}
 
 
 def update(history, times, limit):
