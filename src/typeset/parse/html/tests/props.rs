@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 48] = [
+const PIECES: [&str; 55] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -64,6 +64,15 @@ const PIECES: [&str; 48] = [
     "<dl>",
     "</dl>",
     "<br>",
+    // Block elements whose end tags may be left out, and a start tag that
+    // cannot be read, with a word in the block that cannot be read.
+    "<li>",
+    "</li>",
+    "<ul>",
+    "</ul>",
+    "<dd>",
+    "</dd>",
+    "<div>x < y MARK</div>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -284,7 +293,9 @@ proptest! {
         }
         // The elements that are source for now are shown as written, with
         // whatever tags are in them: `hide` never hides source.
-        for name in ["pre", "script", "textarea", "table", "dl", "hr"] {
+        // So is an HTML block that cannot be read: the one with `x < y`.
+        prop_assume!(!source.contains("x < y"));
+        for name in ["pre", "script", "textarea", "table", "dl", "hr", "ul", "li", "dd"] {
             prop_assume!(!shows_source_of(&shown, name));
         }
         no_tag_is_shown(&source, &marks, &shown)?;

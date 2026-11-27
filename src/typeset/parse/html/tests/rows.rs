@@ -2317,6 +2317,31 @@ pub const ROWS: &[Row] = &[
               p "after" @5~25..52
         "#,
     },
+    // An element whose end is implied is source as far as its last byte, not
+    // as far as the last node: the end tags and an HTML block that cannot be
+    // read are in it, and nothing is lost.
+    Row {
+        name: "a li with a div after a blank line keeps all the text of the div",
+        source: "<li>\n\n<div>x < y SECRET</div>\n",
+        blocks: r#"
+            html "<li>\n" @1=0..4
+            html "<div>x < y SECRET</div>\n" @3=6..29
+        "#,
+    },
+    Row {
+        name: "a div of li and ul keeps the end tags of the list",
+        source: "<div><li>a<ul><li>b</li></ul></div>\n",
+        blocks: r#"
+            html "<li>a<ul><li>b</li></ul>" @1~0..35
+        "#,
+    },
+    Row {
+        name: "a div of dd and a table keeps the end tag of the table",
+        source: "<div>\n<dd>a<table><tr><td>b</td></tr></table></div>\n",
+        blocks: r#"
+            html "<dd>a<table><tr><td>b</td></tr></table>" @2~0..51
+        "#,
+    },
 ];
 
 /// What GitHub's level reads differently from the level "all": the tags

@@ -119,11 +119,32 @@ pub(in crate::typeset::parse) fn read(
     let mut children = vec![Vec::new(); count + 1];
     let mut last: Vec<usize> = (0..count).collect();
     let mut markdown_in = vec![false; count];
+    // The last byte that each node and what is in it take, as an HTML block
+    // and a byte in it: an end tag is no node, so it is the end of its
+    // element, and a block that cannot be read is all of its literal.
+    let mut extent: Vec<(usize, usize)> = tree
+        .nodes
+        .iter()
+        .map(|node| {
+            let own = match &node.kind {
+                NodeKind::Element(open) => match &open.closing {
+                    Closing::End(end) => end,
+                    _ => &node.at,
+                },
+                _ => &node.at,
+            };
+            match (&node.kind, &html[node.at.piece]) {
+                (NodeKind::Source, Some(block)) => (node.at.piece, block.literal.len()),
+                _ => (own.piece, own.bytes.end),
+            }
+        })
+        .collect();
     for (at, node) in tree.nodes.iter().enumerate() {
         children[node.parent.unwrap_or(count)].push(at);
     }
     for (at, node) in tree.nodes.iter().enumerate().rev() {
         if let Some(parent) = node.parent {
+            extent[parent] = extent[parent].max(extent[at]);
             last[parent] = last[parent].max(last[at]);
             markdown_in[parent] |= markdown_in[at] || matches!(node.kind, NodeKind::Markdown);
         }
@@ -136,6 +157,7 @@ pub(in crate::typeset::parse) fn read(
         markdown,
         children,
         last,
+        extent,
         markdown_in,
     };
     let mut out = Vec::new();
@@ -160,6 +182,8 @@ struct Reader<'t> {
     markdown: Vec<Option<Vec<(Block, Position)>>>,
     children: Vec<Vec<usize>>,
     last: Vec<usize>,
+    /// The last byte in each node, as `read` makes it.
+    extent: Vec<(usize, usize)>,
     markdown_in: Vec<bool>,
 }
 
@@ -337,10 +361,11 @@ impl<'t> Reader<'t> {
             Closing::End(end) => end.clone(),
             _ => {
                 let last = &self.tree.nodes[self.last[node]];
-                match last.kind {
-                    NodeKind::Markdown => start.clone(),
-                    _ => last.at.clone(),
-                }
+                let (piece, byte) = match last.kind {
+                    NodeKind::Markdown => (start.piece, start.bytes.end),
+                    _ => self.extent[node],
+                };
+                return ((start.piece, start.bytes.start), (piece, byte));
             }
         };
         ((start.piece, start.bytes.start), (end.piece, end.bytes.end))
