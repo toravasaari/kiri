@@ -2,6 +2,10 @@ use super::*;
 use crate::typeset::model::Block;
 
 mod browser;
+mod pending;
+mod props;
+mod rows;
+mod table;
 
 #[test]
 fn anchor_ids_are_the_id_and_the_name_of_a_tags() {
@@ -25,8 +29,6 @@ fn img(src: &str, alt: &str) -> Option<Img> {
         alt: alt.into(),
         width: None,
         height: None,
-        link: None,
-        ids: Vec::new(),
     })
 }
 
@@ -38,10 +40,12 @@ fn sized(width: Option<Length>, height: Option<Length>) -> Option<Img> {
     })
 }
 
-fn linked(src: &str, href: &str) -> Option<Img> {
-    Some(Img {
-        link: Some(href.into()),
-        ..img(src, "")?
+/// The image of `src` in a link to `href`.
+fn linked(src: &str, href: &str) -> Option<Inline> {
+    Some(Inline::Link {
+        url: href.into(),
+        title: None,
+        content: vec![image(img(src, ""))?],
     })
 }
 
@@ -240,39 +244,76 @@ fn ignores_lengths_that_are_no_size() {
     );
 }
 
+/// The image that `source` shows, when it shows one and nothing more but
+/// tags: an image, or a link round one, in a paragraph that may be centred.
+fn shown_image(source: &str) -> Option<Inline> {
+    fn shown(blocks: &[Block], into: &mut Vec<Inline>) -> bool {
+        blocks.iter().all(|block| match block {
+            Block::Html(_) => true,
+            Block::Centered(inner) => shown(inner, into),
+            Block::Paragraph(content) => {
+                into.extend(
+                    (content.iter())
+                        .filter(|inline| !matches!(inline, Inline::Html(_)))
+                        .cloned(),
+                );
+                true
+            }
+            _ => false,
+        })
+    }
+    let mut inlines = Vec::new();
+    if !shown(&crate::typeset::parse::parse(source).blocks, &mut inlines) {
+        return None;
+    }
+    match inlines.as_slice() {
+        [image @ Inline::Image(_)] => Some(image.clone()),
+        [link @ Inline::Link { content, .. }]
+            if matches!(content.as_slice(), [Inline::Image(_)]) =>
+        {
+            Some(link.clone())
+        }
+        _ => None,
+    }
+}
+
+/// The image that `img` gives in a document.
+fn image(img: Option<Img>) -> Option<Inline> {
+    let img = img?;
+    Some(Inline::Image(crate::typeset::model::Image {
+        url: img.src,
+        alt: match img.alt.is_empty() {
+            true => Vec::new(),
+            false => vec![Inline::Text(img.alt)],
+        },
+        width: img.width,
+        height: img.height,
+    }))
+}
+
 #[test]
 fn a_block_of_one_img_is_an_image() {
-    assert_eq!(block_img("<img src=a.png alt=x>\n"), img("a.png", "x"));
+    assert_eq!(
+        shown_image("<img src=a.png alt=x>\n"),
+        image(img("a.png", "x"))
+    );
 }
 
 #[test]
 fn a_block_may_wrap_its_img() {
     let wrapped = "<p align=\"center\">\n  <img src=\"a.png\" alt=\"x\">\n</p>\n";
-    assert_eq!(block_img(wrapped), img("a.png", "x"));
+    assert_eq!(shown_image(wrapped), image(img("a.png", "x")));
     let centred = "<CENTER><div><img src=a.png alt=x></div></CENTER>\n";
-    assert_eq!(block_img(centred), img("a.png", "x"));
+    assert_eq!(shown_image(centred), image(img("a.png", "x")));
     let commented = "<!-- logo -->\n<p><img src=a.png alt=x></p>\n";
-    assert_eq!(block_img(commented), img("a.png", "x"));
-}
-
-#[test]
-fn a_block_whose_wrapping_tags_do_not_end_in_it_is_no_image() {
-    for html in [
-        "<img src=a.png>\n</div>\n",
-        "</div>\n<img src=a.png>\n",
-        "<a href=x><img src=a.png>\n",
-        "<div><img src=a.png>\n",
-        "<center><img src=a.png>\n",
-    ] {
-        assert_eq!(block_img(html), None, "{html:?}");
-    }
+    assert_eq!(shown_image(commented), image(img("a.png", "x")));
     // A `<p>` may leave out its end tag, which the block or an end tag
     // round it then ends.
     for html in [
         "<p align=\"center\">\n  <img src=a.png>\n",
         "<div><p><img src=a.png></div>\n",
     ] {
-        assert_eq!(block_img(html), img("a.png", ""), "{html:?}");
+        assert_eq!(shown_image(html), image(img("a.png", "")), "{html:?}");
     }
 }
 
@@ -282,7 +323,14 @@ fn a_picture_shows_its_img() {
             \x20 <source media=\"(prefers-color-scheme: dark)\" srcset=\"dark.png\">\n\
             \x20 <img src=\"light.png\" alt=\"Logo\">\n\
             </picture>\n";
-    assert_eq!(block_img(picture), img("light.png", "Logo"));
+    assert_eq!(shown_image(picture), image(img("light.png", "Logo")));
+    // Without its end tag it shows its tags as they are.
+    let open = "<picture><source srcset=b.png><img src=a.png>\n";
+    let blocks = crate::typeset::parse::parse(open).blocks;
+    assert!(
+        matches!(&blocks[..], [Block::Paragraph(content)] if content.len() == 3),
+        "{blocks:?}"
+    );
 }
 
 #[test]
@@ -345,33 +393,46 @@ fn reads_the_tags_of_a_mark() {
 #[test]
 fn a_block_may_link_its_img() {
     let linked_block = "<p align=center>\n  <a href=\"https://x\"><img src=a.png></a>\n</p>\n";
-    assert_eq!(block_img(linked_block), linked("a.png", "https://x"));
-    assert_eq!(block_img("<a><img src=a.png></a>\n"), img("a.png", ""));
+    assert_eq!(shown_image(linked_block), linked("a.png", "https://x"));
     assert_eq!(
-        block_img("<a href=x></a><img src=a.png>\n"),
-        img("a.png", "")
+        shown_image("<a><img src=a.png></a>\n"),
+        image(img("a.png", ""))
+    );
+    // A link with nothing in it is no link: its tags stay.
+    assert_eq!(
+        shown_image("<a href=x></a><img src=a.png>\n"),
+        image(img("a.png", ""))
     );
 }
 
 #[test]
 fn a_block_with_more_than_an_img_is_not_an_image() {
-    assert_eq!(block_img("<p>Text <img src=a.png></p>\n"), None);
-    assert_eq!(block_img("<p><img src=a.png><img src=b.png></p>\n"), None);
-    assert_eq!(block_img("<p><b><img src=a.png></b></p>\n"), None);
-    assert_eq!(block_img("<p><br><img src=a.png></p>\n"), None);
-    assert_eq!(block_img("<p>&nbsp;<img src=a.png></p>\n"), None);
-    assert_eq!(block_img("<div>\n</div>\n"), None);
-    assert_eq!(block_img("<!DOCTYPE html><img src=a.png>\n"), None);
-    assert_eq!(block_img("<!-- <img src=a.png> -->\n"), None);
-    assert_eq!(block_img("<img alt=x>\n"), None);
+    for html in [
+        "<p>Text <img src=a.png></p>\n",
+        "<p><img src=a.png><img src=b.png></p>\n",
+        "<p><b><img src=a.png></b></p>\n",
+        "<p><br><img src=a.png></p>\n",
+        "<p>&nbsp;<img src=a.png></p>\n",
+        "<div>\n</div>\n",
+        "<!DOCTYPE html><img src=a.png>\n",
+        "<!-- <img src=a.png> -->\n",
+        "<img alt=x>\n",
+    ] {
+        assert_eq!(shown_image(html), None, "{html:?}");
+    }
 }
 
 #[test]
 fn a_block_cut_short_is_not_an_image() {
-    assert_eq!(block_img("<img src=a.png>\n<p\n"), None);
-    assert_eq!(block_img("<img src=a.png>\n<!-- open\n"), None);
-    assert_eq!(block_img("<img src=\"a.png>\n"), None);
+    for html in [
+        "<img src=a.png>\n<p\n",
+        "<img src=a.png>\n<!-- open\n",
+        "<img src=\"a.png>\n",
+    ] {
+        assert_eq!(shown_image(html), None, "{html:?}");
+    }
 }
+
 /// Odd input that the readers of HTML must meet without a panic.
 fn odd_inputs() -> Vec<String> {
     let mut inputs: Vec<String> = [
@@ -417,20 +478,19 @@ fn odd_inputs() -> Vec<String> {
 #[test]
 fn odd_input_does_not_panic() {
     for input in odd_inputs() {
-        heading(&input);
-        pre(&input);
-        wrapper::events(&input);
-        wrapper::inline_html(&input);
-        block_img(&input);
+        crate::typeset::parse::parse(&input);
+        headings(&input);
         phrase_start(&input);
         phrase_end(&input);
         decode_entities(&input);
     }
-    assert_eq!(heading(""), None);
-    assert_eq!(heading("<h2"), None);
-    assert_eq!(pre("<pre"), None);
-    assert_eq!(pre("<pre>"), None);
-    assert_eq!(pre("<pre>\u{e9}</pre>"), Some((None, "\u{e9}\n".into())));
+    let code = |source| crate::typeset::parse::parse(source).blocks;
+    assert!(matches!(&code("<pre")[..], [Block::Paragraph(_)]));
+    assert!(matches!(&code("<pre>")[..], [Block::Html(_)]));
+    assert!(matches!(
+        &code("<pre>\u{e9}</pre>")[..],
+        [Block::CodeBlock { code, .. }] if &**code == "\u{e9}\n"
+    ));
     assert_eq!(decode_entities(&"&".repeat(1000)), "&".repeat(1000));
 }
 
@@ -586,15 +646,12 @@ fn start_and_end_tags_in_text_pair_as_they_did() {
 /// How today's reading of the HTML in a document differs from a browser's,
 /// on the documents of `browser::document`: the baseline that the switch
 /// to the tree is measured by (roadmap 4.10.2, step 5 takes it to none).
+/// How many documents `parse` reads otherwise than a browser, and why. The
+/// reading before the tree of HTML (roadmap 4.10.2, step 4) differed on 347
+/// of 600.
 #[test]
-fn the_reading_of_today_differs_from_a_browser_as_pinned() {
+fn parse_differs_from_a_browser_as_pinned() {
     insta::assert_snapshot!(browser::compare(browser::kiri));
-}
-
-/// The same for the tree, as the switch would read it.
-#[test]
-fn the_tree_read_as_blocks_differs_from_a_browser_as_pinned() {
-    insta::assert_snapshot!(browser::compare(browser::tree));
 }
 
 #[test]
@@ -630,7 +687,7 @@ fn the_comparison_maps_a_browsers_tree_onto_shapes() {
 }
 
 #[test]
-fn both_readings_agree_with_a_browser_on_documents_that_need_no_repair() {
+fn parse_agrees_with_a_browser_on_documents_that_need_no_repair() {
     for source in [
         "A paragraph.\n",
         "## A heading\n\ntext\n",
@@ -640,11 +697,6 @@ fn both_readings_agree_with_a_browser_on_documents_that_need_no_repair() {
         "<details>\n<summary>S</summary>\n\ntext\n\n</details>\n",
         "<center>\n<h2>H</h2>\n<p>text</p>\n</center>\n",
     ] {
-        for (name, reading) in [
-            ("kiri", browser::kiri as fn(&str) -> _),
-            ("tree", browser::tree),
-        ] {
-            assert!(browser::agrees(source, reading), "{name}: {source:?}");
-        }
+        assert!(browser::agrees(source, browser::kiri), "{source:?}");
     }
 }

@@ -60,11 +60,14 @@ fn dump(tree: &Tree, blocks: &[String]) -> String {
             }
             NodeKind::Text if text.trim().is_empty() => continue,
             NodeKind::Text => format!("text {:?}", text.trim()),
-            NodeKind::Tag { name, end } => format!("tag <{}{name}>", if *end { "/" } else { "" }),
+            NodeKind::RawTag { .. } => format!("text {:?}", text.trim()),
+            NodeKind::Tag { tag, end } => {
+                format!("tag <{}{}>", if *end { "/" } else { "" }, tag.name)
+            }
             NodeKind::Comment => "comment".to_owned(),
             NodeKind::Markdown => "markdown".to_owned(),
             NodeKind::Source => "source".to_owned(),
-            NodeKind::Unpaired { .. } => format!("unpaired {text}"),
+            NodeKind::Unpaired => format!("unpaired {text}"),
         };
         writeln!(out, "{}{line}", "  ".repeat(depth)).unwrap();
     }
@@ -80,6 +83,29 @@ fn a_start_tag_ends_an_open_p_and_a_block_element_nests() {
     assert_eq!(
         tree("<div><p>a<p>b</div>\n"),
         "div\n  p [implied end]\n    text \"a\"\n  p [implied end]\n    text \"b\"\n"
+    );
+    // A raw-text element that is no block in a browser does not end it.
+    for raw in ["script", "style", "textarea"] {
+        assert_eq!(
+            tree(&format!("<p>a<{raw}>x</{raw}>b</p>\n")),
+            format!("p\n  text \"a\"\n  {raw}\n    text \"x\"\n  text \"b\"\n"),
+            "{raw}"
+        );
+    }
+    // A `<pre>` is a block, and does.
+    assert_eq!(
+        tree("<p>a<pre>x</pre>b\n"),
+        "p [implied end]\n  text \"a\"\npre\n  text \"x\"\ntext \"b\"\n"
+    );
+    // So does the start of a block that kiri leaves as source, such as a
+    // `<table>`, and a void one such as `<hr>`.
+    assert_eq!(
+        tree("<p>a<table>x</table>\n"),
+        "p [implied end]\n  text \"a\"\ntable\n  text \"x\"\n"
+    );
+    assert_eq!(
+        tree("<p>a<hr>b</p>\n"),
+        "p [implied end]\n  text \"a\"\ntag <hr>\ntext \"b\"\nunpaired </p>\n"
     );
     // A text element is a leaf, and so is one the table does not know.
     assert_eq!(
@@ -235,16 +261,19 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
     assert_eq!(depth(&tree), 256);
     // The 44 start tags past the cap, and the 44 end tags that are left
     // when the 256 elements are ended.
+    // An unpaired tag is a start or an end tag, as its bytes tell.
     let unpaired = |end: bool| {
-        move |tree: &Tree| {
-            tree.nodes
-                .iter()
-                .filter(|node| matches!(&node.kind, NodeKind::Unpaired { end: e, .. } if *e == end))
+        move |tree: &Tree, source: &str| {
+            (tree.nodes.iter())
+                .filter(|node| {
+                    matches!(node.kind, NodeKind::Unpaired)
+                        && source[node.at.bytes.clone()].starts_with("</") == end
+                })
                 .count()
         }
     };
-    assert_eq!(unpaired(false)(&tree), 44);
-    assert_eq!(unpaired(true)(&tree), 44);
+    assert_eq!(unpaired(false)(&tree, &source), 44);
+    assert_eq!(unpaired(true)(&tree, &source), 44);
     // Every element is ended by an end tag: the pairs are the 256 inner
     // elements' own, from the inside.
     assert!(tree.nodes.iter().all(|node| match &node.kind {
@@ -252,8 +281,46 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
         _ => true,
     }));
     // Shallower, nothing is unpaired.
-    let tree = scripted(&format!("{}{}", "<div>".repeat(256), "</div>".repeat(256)));
-    assert_eq!(unpaired(false)(&tree) + unpaired(true)(&tree), 0);
+    let source = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
+    let tree = scripted(&source);
+    assert_eq!(
+        unpaired(false)(&tree, &source) + unpaired(true)(&tree, &source),
+        0
+    );
+    // A raw-text element past the cap: its tags are unpaired leaves, what it
+    // holds is still no tag, and the 256 elements below are ended by their
+    // own end tags.
+    let source = format!(
+        "{}<pre><div></pre>{}",
+        "<div>".repeat(256),
+        "</div>".repeat(256)
+    );
+    let tree = scripted(&source);
+    assert_eq!(unpaired(false)(&tree, &source), 1);
+    assert_eq!(unpaired(true)(&tree, &source), 1);
+    let kinds: Vec<_> = (tree.nodes.iter())
+        .filter(|node| !matches!(node.kind, NodeKind::Element(_)))
+        .map(|node| (&source[node.at.bytes.clone()], &node.kind))
+        .collect();
+    assert!(
+        matches!(
+            kinds.as_slice(),
+            [
+                ("<pre>", NodeKind::Unpaired),
+                ("<div>", NodeKind::RawTag { .. }),
+                ("</pre>", NodeKind::Unpaired),
+            ]
+        ),
+        "{kinds:?}"
+    );
+    assert_eq!(
+        count(&tree, |kind| matches!(kind, NodeKind::Element(_))),
+        256
+    );
+    assert!(tree.nodes.iter().all(|node| match &node.kind {
+        NodeKind::Element(open) => matches!(open.closing, Closing::End(_)),
+        _ => true,
+    }));
 }
 
 /// How the time to make the tree of `make(n)`, a script of lines, grows
@@ -274,6 +341,12 @@ fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
         n,
     )
 }
+
+// The nests of the growth tests below go deeper than `MAX_DEPTH`, and past
+// it every start tag is an unpaired leaf. The cap bounds any scan of the open
+// elements, so a scan per tag would not make these tests fail: they guard
+// against work over the whole list of nodes, such as moving nodes or reading
+// tokens again.
 
 #[test]
 fn elements_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
@@ -297,7 +370,8 @@ fn elements_never_ended_then_stray_end_tags_are_read_in_linear_time() {
     assert!(growth_stray < 24.0, "stray end tags: {growth_stray}");
     // End tags of an element below others that are open, one of which has
     // its end tag to come: each end tag is the one too many, and is found
-    // without a look at the elements above its own.
+    // without a look at the elements above its own. (The cap would bound
+    // such a look too; see above.)
     let blocked = |n| {
         format!(
             "<center>\n<details>\n{}{}</details>\n",

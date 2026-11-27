@@ -1,7 +1,7 @@
 //! The table of the joiner: documents and the blocks `parse` reads from
 //! them, as `outline` writes them.
 
-use super::Row;
+use super::table::Row;
 
 pub const ROWS: &[Row] = &[
     // One HTML block: the whole wrapper, with no blank line in it.
@@ -237,11 +237,14 @@ pub const ROWS: &[Row] = &[
             html "<p align=\"center\"><h1>x</h1></p>\n" @1=0..32
         "#,
     },
+    // K5, read by the tree: the HTML after the end tag of a wrapper in its block is read after it.
     Row {
         name: "text after the end tag in a one-block wrapper keeps it source",
         source: "<div align=\"center\">\nText\n</div>\nAfter the tag.\n",
         blocks: r#"
-            html "<div align=\"center\">\nText\n</div>\nAfter the tag.\n" @1=0..47
+            centred @1=0..32
+              p "Text" @2~0..32
+            p "After the tag." @4~0..47
         "#,
     },
     Row {
@@ -293,11 +296,16 @@ pub const ROWS: &[Row] = &[
               p "Tag" @2~29..54
         "#,
     },
+    // K5, read by the tree: the HTML after the end tag of a wrapper in its block is read after it.
     Row {
         name: "two centred elements with text between them in one block stay source",
         source: "<p align=\"center\">a</p>\ntext\n<p align=\"center\">b</p>\n",
         blocks: r#"
-            html "<p align=\"center\">a</p>\ntext\n<p align=\"center\">b</p>\n" @1=0..52
+            centred @1=0..23
+              p "a" @1~0..23
+            p "text" @2~0..52
+            centred @3=29..52
+              p "b" @3~29..52
         "#,
     },
     Row {
@@ -1011,12 +1019,13 @@ pub const ROWS: &[Row] = &[
               p "Back." @11=86..91
         "#,
     },
+    // K5, read by the tree: a details is placed from its own tags, not from the HTML block it starts in.
     Row {
         name: "nested details that no blank line splits",
         source: "<details>\n<summary>Out</summary>\n<details>\n<summary>In</summary>\n\nDeep.\n\n</details>\n\nBack.\n\n</details>\n\nAfter.\n",
         blocks: r#"
             details "Out" @1=0..102
-              details "In" @1=0..83
+              details "In" @3=33..83
                 p "Deep." @6=66..71
               p "Back." @10=85..90
             p "After." @14=104..110
@@ -1042,23 +1051,25 @@ pub const ROWS: &[Row] = &[
             p "After." @9=62..68
         "#,
     },
+    // K5, read by the tree: a details is placed from its own tags, and the text after its end tag has its own line.
     Row {
         name: "a details ends at a block that holds more than its end",
         source: "<details>\n<summary>S</summary>\n\nIn.\n\n</details>\nAfter.\n\nLast.\n",
         blocks: r#"
-            details "S" @1=0..54
+            details "S" @1=0..47
               p "In." @4=32..35
-            p "After." @6~37..54
+            p "After." @7~37..54
             p "Last." @9=56..61
         "#,
     },
+    // K5, read by the tree: each details is placed from its own tags, not from the HTML blocks it is cut from.
     Row {
         name: "a details end and the next details in one block",
         source: "<details>\n<summary>A</summary>\n\nIn A.\n\n</details>\n<details>\n<summary>B</summary>\n\nIn B.\n\n</details>\n",
         blocks: r#"
-            details "A" @1=0..80
+            details "A" @1=0..49
               p "In A." @4=32..37
-            details "B" @6=39..99
+            details "B" @7=50..99
               p "In B." @10=82..87
         "#,
     },
@@ -1157,23 +1168,25 @@ pub const ROWS: &[Row] = &[
             p "After" @17=120..125
         "#,
     },
+    // K5, read by the tree: the inner details is placed from its own tags.
     Row {
         name: "details in one html block start on the line of that block",
         source: "Before\n\n<details><details>x</details></details>\n",
         blocks: r#"
             p "Before" @1=0..6
             details "Details" @3=8..47
-              details "Details" @3=8..47
+              details "Details" @3=17..37
                 p "x" @3~8..47
         "#,
     },
+    // K5, read by the tree: a block of a details body has its own line, not the first line of its HTML block.
     Row {
         name: "an image in a details body is read from its html block",
         source: "Before\n\n<details>\n<summary>S</summary>\n<img src=\"a.png\">\n</details>\n",
         blocks: r#"
             p "Before" @1=0..6
             details "S" @3=8..67
-              p "![](a.png)" @3~8..67
+              p "![](a.png)" @5~8..67
         "#,
     },
     Row {
@@ -1213,30 +1226,33 @@ pub const ROWS: &[Row] = &[
               p "after inner" @11=83..94
         "#,
     },
+    // K5, read by the tree: each details is placed from its own tags, not from the HTML blocks it is cut from.
     Row {
         name: "two details that share an html block overlap in it",
         source: "<details>\n<summary>A</summary>\n\none\n\n</details>\n<details>\n<summary>B</summary>\n\ntwo\n\n</details>\n",
         blocks: r#"
-            details "A" @1=0..78
+            details "A" @1=0..47
               p "one" @4=32..35
-            details "B" @6=37..95
+            details "B" @7=48..95
               p "two" @10=80..83
         "#,
     },
+    // K5, read by the tree: a block of a details body has its own line, not the first line of its HTML block.
     Row {
         name: "the html of a details body is read as blocks of that html block",
         source: "<details>\n<summary>S</summary>\n<pre>x</pre>\n</details>\n",
         blocks: r#"
             details "S" @1=0..54
-              code "x\n" @1~0..54
+              code "x\n" @3~0..54
         "#,
     },
+    // K5, read by the tree: a details is placed from its own tags, and the stray end tag has its own line.
     Row {
         name: "a second details end in a block stays source inside the block",
         source: "<details>\n<summary>S</summary>\n</details>\n</details>\n",
         blocks: r#"
-            details "S" @1=0..52
-            html "</details>" @1~0..52
+            details "S" @1=0..41
+            html "</details>\n" @4~0..52
         "#,
     },
     Row {
@@ -1383,13 +1399,14 @@ pub const ROWS: &[Row] = &[
             p "after" @5=78..83
         "#,
     },
+    // K5, read by the tree: the HTML before a details end tag is not cut as a body part: the stray tag is its own.
     Row {
         name: "a stray end tag before a details end in its block stays source",
         source: "<details>\n<summary>s</summary>\n\ntext\n\n</div>\n</details>\n",
         blocks: r#"
             details "s" @1=0..55
               p "text" @4=32..36
-              html "</div>\n" @6~38..55
+              html "</div>" @6~38..55
         "#,
     },
     Row {
@@ -1409,24 +1426,26 @@ pub const ROWS: &[Row] = &[
             html "</details>\n" @5=24..34
         "#,
     },
+    // K5, read by the tree: the inner details is placed from its own tags.
     Row {
         name: "a details in a details in one block with text between",
         source: "<details><summary>S</summary><details>In</details>Out</details>\n",
         blocks: r#"
             details "S" @1=0..63
-              details "Details" @1=0..63
+              details "Details" @1=29..50
                 p "In" @1~0..63
               p "Out" @1~0..63
         "#,
     },
+    // K5, read by the tree: a details is placed from its own tags, and the text after its end tag has its own line.
     Row {
         name: "html before a details end in its block stays source, and text after it follows",
         source: "<details>\n<summary>S</summary>\n\nA\n\n</p>\n</details>\nAfter.\n",
         blocks: r#"
-            details "S" @1=0..57
+            details "S" @1=0..50
               p "A" @4=32..33
-              html "</p>\n" @6~35..57
-            p "After." @6~35..57
+              html "</p>" @6~35..57
+            p "After." @8~35..57
         "#,
     },
     Row {
@@ -1488,52 +1507,57 @@ pub const ROWS: &[Row] = &[
             html "<detailsx>\n</detailsx>\n" @1=0..22
         "#,
     },
+    // K5, read by the tree: a wrapper after an end tag in its block is placed from its own tags.
     Row {
         name: "a centred p after an end tag in its block is centred",
         source: "<center>\n\nA\n\n</center>\n<p align=\"center\">B</p>\n",
         blocks: r#"
             centred @1=0..22
               p "A" @3=10..11
-            centred @6~13..46
+            centred @6=23..46
               p "B" @6~23..46
         "#,
     },
+    // K5, read by the tree: a wrapper after an end tag in its block is placed from its own tags.
     Row {
         name: "a centred heading after a wrapper end tag in its block is centred",
         source: "<div align=\"center\">\n\nA\n\n</div>\n<h2 align=\"center\">T</h2>\n",
         blocks: r#"
             centred @1=0..31
               p "A" @3=22..23
-            centred @6~25..57
+            centred @6=32..57
               h2 "T" @6~32..57
         "#,
     },
+    // K5, read by the tree: a wrapper after a details end tag in its block is placed from its own tags.
     Row {
         name: "a centred heading after a details end tag in its block is centred",
         source: "<details>\n<summary>S</summary>\n\nA\n\n</details>\n<h1 align=\"center\">T</h1>\n",
         blocks: r#"
-            details "S" @1=0..71
+            details "S" @1=0..45
               p "A" @4=32..33
-            centred @6~35..71
-              h1 "T" @7~45..71
+            centred @7=46..71
+              h1 "T" @7~46..71
         "#,
     },
+    // K5, read by the tree: a wrapper in a details body is placed from its own tags.
     Row {
         name: "a centred p in the body of a one-block details is centred",
         source: "<details><summary>S</summary><p align=\"center\">x</p></details>\n",
         blocks: r#"
             details "S" @1=0..62
-              centred @1~0..62
-                p "x" @1~29..62
+              centred @1=29..52
+                p "x" @1~29..52
         "#,
     },
+    // K4, read by the tree: an end tag after an image in its block ends its element.
     Row {
         name: "an end tag after an image in its block does nothing, and both stay source",
         source: "<div align=\"center\">\n\nA\n\n<img src=\"b.png\" alt=\"logo\">\n</div>\n\nafter\n",
         blocks: r#"
-            html "<div align=\"center\">\n" @1=0..20
-            p "A" @3=22..23
-            html "<img src=\"b.png\" alt=\"logo\">\n</div>\n" @5=25..60
+            centred @1=0..60
+              p "A" @3=22..23
+              p "![logo](b.png)" @5~25..60
             p "after" @8=62..67
         "#,
     },
@@ -1873,6 +1897,36 @@ pub const ROWS: &[Row] = &[
               p "A" @5=16..17
             html "</p>" @9~31..41
             p "after" @10~31..41
+        "#,
+    },
+    // Elements that are source for now across HTML blocks: as written while
+    // no Markdown block is in them, each HTML block's part a block of its
+    // own; dim tags and the blocks when a Markdown block cuts them.
+    Row {
+        name: "a table that a blank line splits stays source, a block for each part",
+        source: "<table>\n<tr><td>a</td></tr>\n\n<tr><td>b</td></tr>\n</table>\n",
+        blocks: r#"
+            html "<table>\n<tr><td>a</td></tr>\n" @1=0..27
+            html "<tr><td>b</td></tr>\n</table>\n" @4=29..57
+        "#,
+    },
+    Row {
+        name: "a list that a blank line splits stays source, a block for each part",
+        source: "<ul>\n<li>one</li>\n\n<li>two</li>\n</ul>\n",
+        blocks: r#"
+            html "<ul>\n<li>one</li>\n" @1=0..17
+            html "<li>two</li>\n</ul>\n" @4=19..37
+        "#,
+    },
+    Row {
+        name: "a table that a markdown block cuts is its tags dim and the blocks",
+        source: "<table>\n<tr><td>\n\n**b**\n\n</td><td>plain</td></tr>\n</table>\n",
+        blocks: r#"
+            html "<table>" @1~0..16
+            html "<tr><td>\n" @2~0..16
+            p "**b**" @4=18..23
+            p "</td><td>plain</td></tr>" @6~25..58
+            html "</table>\n" @7~25..58
         "#,
     },
 ];

@@ -35,7 +35,7 @@ fn plain_headings_have_no_text_sizing() {
 
 #[test]
 fn a_raw_html_block_wraps_to_the_width_and_keeps_its_text() {
-    let source = format!("<div>\n  {}</div>\n", "word ".repeat(30));
+    let source = format!("<table>\n  {}</table>\n", "word ".repeat(30));
     let lines = layout(&parse(&source), &inputs());
     let texts: Vec<String> = lines.iter().map(|line| text(&line.spans)).collect();
     assert!(

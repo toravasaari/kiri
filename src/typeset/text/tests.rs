@@ -56,7 +56,10 @@ fn details_have_the_summary_and_an_alert_its_title_and_html_its_source() {
     assert_eq!(texts_of(source), ["\nThe sum"]);
     assert_eq!(texts_of("> [!NOTE] A title\n> text\n"), ["\nA title"]);
     assert!(texts_of("> [!NOTE]\n> text\n").is_empty());
-    assert_eq!(texts_of("<div>\nraw\n</div>\n"), ["\n<div>\nraw\n</div>"]);
+    assert_eq!(
+        texts_of("<table>\nraw\n</table>\n"),
+        ["\n<table>\nraw\n</table>"]
+    );
 }
 
 #[test]
@@ -155,7 +158,7 @@ fn a_block_has_a_text_of_a_part_only_where_it_has_that_part() {
         ("# h\n", Part::Source),
         ("p\n", Part::Title),
         ("```\nc\n```\n", Part::Content),
-        ("<div>\n</div>\n", Part::Summary),
+        ("<table>\n</table>\n", Part::Summary),
         ("> [!NOTE]\n> a\n", Part::Title),
         ("---\ntitle: A\n---\n", Part::Source),
         ("---\n---\n", Part::Source),
@@ -164,7 +167,7 @@ fn a_block_has_a_text_of_a_part_only_where_it_has_that_part() {
         ("# h\n", Part::Content),
         ("p\n", Part::Content),
         ("```\nc\n```\n", Part::Source),
-        ("<div>\n</div>\n", Part::Source),
+        ("<table>\n</table>\n", Part::Source),
         (details, Part::Summary),
         ("> [!NOTE] t\n> a\n", Part::Title),
         ("---\n- a\n---\n", Part::Source),
@@ -296,7 +299,7 @@ fn a_term_is_found_in_every_kind_of_text_and_not_in_what_is_not_text() {
         "<details>\n<summary>needle sum</summary>\n\nBody\n\n</details>\n",
         "> [!NOTE] needle title\n> text\n",
         "```needle\ncode needle\n```\n",
-        "<div>needle</div>\n",
+        "<table>needle</table>\n",
     ]
     .join("\n");
     assert_eq!(
@@ -310,7 +313,7 @@ fn a_term_is_found_in_every_kind_of_text_and_not_in_what_is_not_text() {
             "0/[4]:0@0..6",
             "0/[5]:0@0..6",
             "0/[6]:0@5..11",
-            "0/[7]:0@5..11",
+            "0/[7]:0@7..13",
         ]
     );
 }
@@ -484,8 +487,10 @@ fn is_added_by_the_layout(block: &str, word: &str, languages: &[&str]) -> bool {
     let drawn = word.chars().all(mark);
     let label = (word.strip_suffix(':')).is_some_and(|name| block.contains(name));
     // An image that is not drawn shows as `[image: alt text]`.
-    let image =
-        word == "[image:" || (word.contains(']') && block.contains(&word.replace(['[', ']'], "")));
+    // Two images side by side join their labels, as `One][image:`.
+    let image = word == "[image:"
+        || (word.contains(']')
+            && (word.split("][image:")).all(|part| block.contains(&part.replace(['[', ']'], ""))));
     // A formula that is not drawn shows as it is written between
     // dollars, as Markdown reads it, where `\\` is `\`: each part
     // between backslashes has to be in the text of the block.

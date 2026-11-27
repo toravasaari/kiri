@@ -3,10 +3,9 @@
 //! comrak writes the HTML of a document, a browser-grade parser (`scraper`,
 //! over html5ever) builds its tree, and that tree is mapped onto the shapes
 //! kiri reads: centred blocks, `<details>`, headings and paragraphs. What kiri
-//! reads, from `parse` or from the tree of `tree.rs`, is mapped onto the
-//! same shapes. Only structure and plain text are compared, not inline markup:
-//! comrak writes `<strong>` where the outline has `**`, and a Markdown
-//! paragraph is a `<p>` of comrak's.
+//! reads, from `parse`, is mapped onto the same shapes. Only structure and
+//! plain text are compared, not inline markup: comrak writes `<strong>` where
+//! the outline has `**`, and a Markdown paragraph is a `<p>` of comrak's.
 //!
 //! The documents are made by a generator with a seed of its own, of the
 //! elements of the table, whole, with blank lines anywhere. Where kiri
@@ -18,13 +17,8 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use comrak::nodes::NodeValue;
-use comrak::{Arena, parse_document};
 use scraper::{ElementRef, Html};
 
-use super::super::elements::{self, Treatment};
-use super::super::spanned_tokens;
-use super::super::tree::{Closing, NodeKind, Piece, Tree};
 use crate::typeset::model::{Block, Inline};
 use crate::typeset::parse::parse;
 
@@ -182,7 +176,7 @@ fn push_aligned(out: &mut Vec<Shape>, element: &ElementRef<'_>, shape: Option<Sh
     }
 }
 
-// ---------- kiri's reading of today ----------
+// ---------- kiri's reading ----------
 
 /// The text of `inlines`: tags are no text, an image is its address.
 fn inline_text(inlines: &[Inline]) -> String {
@@ -258,181 +252,9 @@ fn kiri_blocks(blocks: &[Block]) -> Vec<Shape> {
     out
 }
 
-/// What kiri reads of `source` today.
+/// What kiri reads of `source`.
 pub fn kiri(source: &str) -> Vec<Shape> {
     kiri_blocks(&parse(source).blocks)
-}
-
-// ---------- the tree ----------
-
-/// What the Markdown block `node` is, as far as the comparison goes.
-fn markdown_shape<'a>(node: comrak::Node<'a>) -> Option<Shape> {
-    let mut text = String::new();
-    for inner in node.descendants().skip(1) {
-        match &inner.data().value {
-            NodeValue::Text(part) => text.push_str(part),
-            NodeValue::Code(code) => text.push_str(&code.literal),
-            NodeValue::SoftBreak | NodeValue::LineBreak => text.push(' '),
-            NodeValue::HtmlInline(tag) if tag.starts_with("<br") => text.push(' '),
-            _ => {}
-        }
-    }
-    let text = plain(&text);
-    match &node.data().value {
-        NodeValue::Paragraph => (!text.is_empty()).then_some(Shape::Paragraph(text)),
-        NodeValue::Heading(heading) => Some(Shape::Heading(heading.level, text)),
-        _ => None,
-    }
-}
-
-/// The tree of `source` read as the blocks it would give: a plain `<div>` is
-/// transparent, a plain `<p>` a paragraph, an element that centres a centred
-/// block, and an unpaired tag cuts a run of text. This is the reading of the
-/// switch to the tree, as far as the comparison goes.
-pub fn tree(source: &str) -> Vec<Shape> {
-    let arena = Arena::new();
-    let root = parse_document(&arena, source, &crate::typeset::parse::options());
-    let (mut pieces, mut blocks, mut markdown) = (Vec::new(), Vec::new(), Vec::new());
-    for node in root.children() {
-        markdown.push(markdown_shape(node));
-        match &node.data().value {
-            NodeValue::HtmlBlock(block) => {
-                blocks.push(block.literal.clone());
-                pieces.push(Piece::Source);
-            }
-            _ => {
-                blocks.push(String::new());
-                pieces.push(Piece::Markdown);
-            }
-        }
-    }
-    // The tokens borrow the text of the blocks, which is made before them.
-    let tokens: Vec<_> = blocks.iter().map(|block| spanned_tokens(block)).collect();
-    for (piece, tokens) in pieces.iter_mut().zip(tokens) {
-        if matches!(piece, Piece::Source)
-            && let Some(tokens) = tokens
-        {
-            *piece = Piece::Html(tokens);
-        }
-    }
-    let tree = Tree::new(pieces);
-    let mut children = vec![Vec::new(); tree.nodes.len() + 1];
-    for (at, node) in tree.nodes.iter().enumerate() {
-        children[node.parent.unwrap_or(tree.nodes.len())].push(at);
-    }
-    let reader = Reader {
-        tree: &tree,
-        blocks: &blocks,
-        markdown: &markdown,
-        children: &children,
-    };
-    let mut out = Vec::new();
-    let mut run = String::new();
-    reader.collect(tree.nodes.len(), None, &mut out, &mut run);
-    flush(&mut run, &mut out);
-    out
-}
-
-struct Reader<'t> {
-    tree: &'t Tree,
-    blocks: &'t [String],
-    markdown: &'t [Option<Shape>],
-    /// The nodes in each node, and in the container, which is last.
-    children: &'t [Vec<usize>],
-}
-
-impl Reader<'_> {
-    fn text(&self, node: usize) -> &str {
-        let at = &self.tree.nodes[node].at;
-        &self.blocks[at.piece][at.bytes.clone()]
-    }
-
-    /// The text of the leaves in `node`, with a space for each `<br>`.
-    fn text_in(&self, node: usize) -> String {
-        let mut text = String::new();
-        for &child in &self.children[node] {
-            match &self.tree.nodes[child].kind {
-                NodeKind::Text => text.push_str(self.text(child)),
-                NodeKind::Tag { name, end: false } if name == "br" => text.push(' '),
-                NodeKind::Element(_) => text.push_str(&self.text_in(child)),
-                _ => {}
-            }
-        }
-        text
-    }
-
-    /// The shapes in `parent` (the container when it is the last), but for
-    /// the child `skip`. A run of text goes on in `run`.
-    fn collect(&self, parent: usize, skip: Option<usize>, out: &mut Vec<Shape>, run: &mut String) {
-        for &child in &self.children[parent] {
-            if skip == Some(child) {
-                continue;
-            }
-            let node = &self.tree.nodes[child];
-            match &node.kind {
-                NodeKind::Text => run.push_str(self.text(child)),
-                NodeKind::Tag { name, end: false } if name == "br" => run.push(' '),
-                NodeKind::Tag { .. } | NodeKind::Comment => {}
-                NodeKind::Markdown => {
-                    flush(run, out);
-                    out.extend(self.markdown[node.at.piece].clone());
-                }
-                // A tag of a block element that does nothing cuts the text.
-                NodeKind::Source | NodeKind::Unpaired { .. } => flush(run, out),
-                NodeKind::Element(open) => {
-                    flush(run, out);
-                    if open.closing == Closing::Unpaired {
-                        // Its tag does nothing, and what it holds is read as
-                        // what the element round it holds.
-                        self.collect(child, None, out, run);
-                        continue;
-                    }
-                    self.element(child, open, out);
-                }
-            }
-        }
-    }
-
-    fn element(&self, node: usize, open: &super::super::tree::Opened, out: &mut Vec<Shape>) {
-        let (row, tag) = (open.row, &open.tag);
-        let mut inner = Vec::new();
-        let mut run = String::new();
-        match row.treatment {
-            Treatment::Details => {
-                let summary = self.children[node].iter().copied().find(|&child| {
-                    matches!(&self.tree.nodes[child].kind,
-                        NodeKind::Element(open) if open.row.name == "summary"
-                            && open.closing != Closing::Unpaired)
-                });
-                self.collect(node, summary, &mut inner, &mut run);
-                flush(&mut run, &mut inner);
-                let summary = summary.map(|summary| plain(&self.text_in(summary)));
-                let summary = summary.unwrap_or_else(|| "Details".to_owned());
-                out.push(Shape::Details(summary, inner));
-            }
-            Treatment::Heading(level) => {
-                let text = plain(&self.text_in(node));
-                if !text.is_empty() {
-                    let shape = Shape::Heading(level, text);
-                    match elements::is_centred(tag) {
-                        true => out.extend(centred(vec![shape])),
-                        false => out.push(shape),
-                    }
-                }
-            }
-            Treatment::Wrapper(_) | Treatment::Summary => {
-                self.collect(node, None, &mut inner, &mut run);
-                flush(&mut run, &mut inner);
-                if row.centres_with(tag) {
-                    out.extend(centred(inner));
-                } else {
-                    out.extend(inner);
-                }
-            }
-            // Not read: a raw-text element holds no shape.
-            _ => {}
-        }
-    }
 }
 
 // ---------- the documents ----------

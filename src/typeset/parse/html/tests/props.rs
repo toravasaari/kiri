@@ -1,8 +1,8 @@
-//! Property tests of the joiner of wrappers: documents made of the tags it
-//! reads, text with characters of more than one byte, comments, blank lines
-//! and CRLF, in any order, at the top, in a quote or in a list item, are
-//! read without a panic, with places on the source, and with none of their
-//! words lost.
+//! Property tests of the reading of the HTML in a document: documents made
+//! of the tags it reads, text with characters of more than one byte,
+//! comments, blank lines and CRLF, in any order, at the top, in a quote or in
+//! a list item, are read without a panic, with places on the source, and with
+//! none of their words lost.
 
 use proptest::prelude::*;
 

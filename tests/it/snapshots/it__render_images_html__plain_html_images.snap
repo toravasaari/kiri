@@ -59,10 +59,8 @@ expression: "render_fixture(\"images-html.md\",\n&with_images(&Capabilities::pla
   block with two images and an `<img>` without
   a `src`.
 
-  <p>Text and <img src="images/icon.png" alt="
-  an icon"></p>
+  Text and [image: an icon]
 
-  <p><img src="images/icon.png" alt="One"><img
-   src="images/icon.png" alt="Two"></p>
+  [image: One][image: Two]
 
   <img alt="No source">

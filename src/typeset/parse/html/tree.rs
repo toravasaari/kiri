@@ -29,7 +29,7 @@
 
 use std::ops::Range;
 
-use super::elements::{self, Element, EndedBy, Kind, TABLE};
+use super::elements::{self, Element, EndedBy, Kind, TABLE, Treatment};
 use super::{Tag, Token};
 
 /// How many block elements may be open at once. A start tag past that is an
@@ -84,9 +84,16 @@ pub enum NodeKind {
     Element(Opened),
     /// Text, or what a raw-text element holds.
     Text,
-    /// A tag of a text element or of an element that kiri does not know.
+    /// A tag inside a raw-text element, which is text there, kept as it was
+    /// read for the reader of `<pre>`.
+    RawTag {
+        tag: Tag,
+        end: bool,
+    },
+    /// A tag of a text element or of an element that kiri does not know, as
+    /// it was read; an end tag has no attributes.
     Tag {
-        name: String,
+        tag: Tag,
         end: bool,
     },
     Comment,
@@ -97,9 +104,7 @@ pub enum NodeKind {
     /// A tag of a block element that starts or ends nothing: a start tag past
     /// the depth cap, an end tag with no element of its name open, or one that
     /// would end an element with an end tag of its own to come.
-    Unpaired {
-        end: bool,
-    },
+    Unpaired,
 }
 
 #[derive(Debug)]
@@ -116,13 +121,28 @@ pub struct Tree {
     pub nodes: Vec<Node>,
 }
 
-/// Whether the row ends nothing and holds nothing, which is a leaf.
+/// Whether the elements of the row nest: a block or a raw-text element.
 fn nests(row: &Element) -> bool {
     matches!(row.kind, Kind::Block | Kind::RawText)
 }
 
-/// The tags of the block elements in `pieces` still to come, by element, and
-/// what is open now.
+/// Whether the start tag of the row starts a block in a browser's sense,
+/// which ends an open `<p>`: a block element or a `<pre>`, not a `<script>`,
+/// a `<style>` or a `<textarea>`.
+fn starts_block(row: &Element) -> bool {
+    matches!(row.kind, Kind::Block | Kind::VoidBlock) || row.treatment == Treatment::Pre
+}
+
+/// How an element ends that something else ends: whole when its end tag may
+/// be left out, else as an unpaired start tag.
+fn given_up(row: &Element) -> Closing {
+    match row.end_optional {
+        true => Closing::Implied,
+        false => Closing::Unpaired,
+    }
+}
+
+/// The tags of the block elements in `pieces` still to come, by element.
 struct Counts {
     starts: Vec<usize>,
     ends: Vec<usize>,
@@ -230,15 +250,23 @@ impl Builder {
     fn token(&mut self, token: Token<'_>, at: Span) {
         if let Some((raw, pushed)) = self.raw {
             // Nothing is a tag until the end tag of the element itself.
-            return match &token {
-                Token::Close(name) if elements::index(name) == Some(raw) => {
+            return match token {
+                Token::Close(name) if elements::index(&name) == Some(raw) => {
                     self.raw = None;
                     self.counts.ends[raw] = self.counts.ends[raw].saturating_sub(1);
                     match pushed {
                         true => self.pop_to(self.open[raw].last().copied(), Closing::End(at)),
-                        false => self.leaf(at, NodeKind::Unpaired { end: true }),
+                        false => self.leaf(at, NodeKind::Unpaired),
                     }
                 }
+                Token::Open(tag) => self.leaf(at, NodeKind::RawTag { tag, end: false }),
+                Token::Close(name) => self.leaf(
+                    at,
+                    NodeKind::RawTag {
+                        tag: Tag::end(name),
+                        end: true,
+                    },
+                ),
                 _ => self.leaf(at, NodeKind::Text),
             };
         }
@@ -252,31 +280,23 @@ impl Builder {
 
     /// Rule 1.
     fn start(&mut self, tag: Tag, at: Span) {
-        let Some(index) = elements::index(&tag.name).filter(|&i| nests(&TABLE[i])) else {
-            return self.leaf(
-                at,
-                NodeKind::Tag {
-                    name: tag.name,
-                    end: false,
-                },
-            );
+        let index = elements::index(&tag.name);
+        // The open elements that this start tag ends: a `<p>` by any block,
+        // a void one such as `<hr>` too.
+        if index.is_some_and(|index| starts_block(&TABLE[index])) {
+            self.end_open_p();
+        }
+        let Some(index) = index.filter(|&i| nests(&TABLE[i])) else {
+            return self.leaf(at, NodeKind::Tag { tag, end: false });
         };
         let row = &TABLE[index];
         self.counts.starts[index] = self.counts.starts[index].saturating_sub(1);
-        // The open elements that this start tag ends: a `<p>` by any block.
-        while let Some(top) = self.top()
-            && let NodeKind::Element(open) = &self.nodes[top].kind
-            && open.row.end_optional
-            && open.row.ended_by == EndedBy::AnyBlock
-        {
-            self.pop(Closing::Implied);
-        }
         let pushed = self.stack.len() < MAX_DEPTH;
         if row.kind == Kind::RawText {
             self.raw = Some((index, pushed));
         }
         if !pushed {
-            return self.leaf(at, NodeKind::Unpaired { end: false });
+            return self.leaf(at, NodeKind::Unpaired);
         }
         let node = self.nodes.len();
         self.leaf(
@@ -294,10 +314,16 @@ impl Builder {
     /// Rule 2.
     fn end(&mut self, name: String, at: Span) {
         let Some(index) = elements::index(&name).filter(|&i| nests(&TABLE[i])) else {
-            return self.leaf(at, NodeKind::Tag { name, end: true });
+            return self.leaf(
+                at,
+                NodeKind::Tag {
+                    tag: Tag::end(name),
+                    end: true,
+                },
+            );
         };
         self.counts.ends[index] = self.counts.ends[index].saturating_sub(1);
-        let unpaired = NodeKind::Unpaired { end: true };
+        let unpaired = NodeKind::Unpaired;
         let Some(&element) = self.open[index].last() else {
             return self.leaf(at, unpaired);
         };
@@ -321,6 +347,12 @@ impl Builder {
 
     /// Rule 3.
     fn markdown(&mut self, piece: usize) {
+        self.end_open_p();
+        self.leaf(Span::none(piece), NodeKind::Markdown);
+    }
+
+    /// Ends the open elements that the start of a block ends: a `<p>`.
+    fn end_open_p(&mut self) {
         while let Some(top) = self.top()
             && let NodeKind::Element(open) = &self.nodes[top].kind
             && open.row.end_optional
@@ -328,7 +360,6 @@ impl Builder {
         {
             self.pop(Closing::Implied);
         }
-        self.leaf(Span::none(piece), NodeKind::Markdown);
     }
 
     /// Takes the element open last off the stack, ended as `closing` says.
@@ -354,11 +385,7 @@ impl Builder {
             let NodeKind::Element(open) = &self.nodes[top].kind else {
                 unreachable!("the stack holds elements");
             };
-            let given_up = match open.row.end_optional {
-                true => Closing::Implied,
-                false => Closing::Unpaired,
-            };
-            self.pop(given_up);
+            self.pop(given_up(open.row));
         }
     }
 
@@ -369,11 +396,7 @@ impl Builder {
             let NodeKind::Element(open) = &self.nodes[top].kind else {
                 unreachable!("the stack holds elements");
             };
-            let closing = match open.row.end_optional {
-                true => Closing::Implied,
-                false => Closing::Unpaired,
-            };
-            self.pop(closing);
+            self.pop(given_up(open.row));
         }
         Tree { nodes: self.nodes }
     }

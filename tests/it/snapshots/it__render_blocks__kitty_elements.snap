@@ -65,6 +65,6 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::kitty(WIDTH)))"
 
   ␛[0;2;3m[image: A diagram]␛[0m
 
-  ␛[0;2m<div>raw html</div>␛[0m
+  raw html
 
 ␛[0;1;34mSmallest heading␛[0m

@@ -1,12 +1,12 @@
-//! The joiner of wrappers, tested by one table: each row is a document
-//! and the blocks that `parse` reads from it, with their places.
+//! The reading of the HTML in a document as blocks, tested by one table:
+//! each row is a document and the blocks that `parse` reads from it, with
+//! their places.
 
 use std::fmt::Write;
 
+use super::{pending, rows};
 use crate::typeset::model::{Document, Extent};
 use crate::typeset::parse::*;
-
-mod rows;
 
 /// A document of the table, and its blocks as `outline` writes them.
 pub struct Row {
@@ -16,9 +16,12 @@ pub struct Row {
     pub blocks: &'static str,
 }
 
+/// Every row reads as its blocks, but for the rows that a decision of the
+/// switch to the tree changes, which `PENDING_5B` holds.
 #[test]
 fn every_row_of_the_table_reads_as_its_blocks() {
     let differ: Vec<String> = (rows::ROWS.iter())
+        .filter(|row| pending::get(row.name).is_none())
         .filter_map(|row| {
             let (expected, found) = (dedent(row.blocks), outline(row.source));
             (found != expected).then(|| {
@@ -38,12 +41,53 @@ fn every_row_of_the_table_reads_as_its_blocks() {
     );
 }
 
+/// Every row that a decision of the switch changes reads as its new blocks,
+/// and its old blocks are those of its row in the table, if it has one.
+#[test]
+fn every_pending_row_reads_as_its_new_blocks() {
+    let mut differ = Vec::new();
+    for pending in pending::PENDING_5B {
+        let found = outline(pending.source);
+        if found != dedent(pending.new) {
+            differ.push(format!(
+                "{} ({:?}: {})\n{:?}\nexpected:\n{}found:\n{found}",
+                pending.name,
+                pending.decision,
+                pending.why,
+                pending.source,
+                dedent(pending.new)
+            ));
+        }
+        if let Some(row) = rows::ROWS.iter().find(|row| row.name == pending.name) {
+            assert_eq!(row.source, pending.source, "{}", pending.name);
+            assert_eq!(dedent(row.blocks), dedent(pending.old), "{}", pending.name);
+        }
+    }
+    assert!(
+        differ.is_empty(),
+        "{} of {} pending rows differ:\n\n{}",
+        differ.len(),
+        pending::PENDING_5B.len(),
+        differ.join("\n")
+    );
+    // Each name once.
+    for (at, pending) in pending::PENDING_5B.iter().enumerate() {
+        assert!(
+            pending::PENDING_5B[..at]
+                .iter()
+                .all(|other| other.name != pending.name),
+            "{} twice",
+            pending.name
+        );
+    }
+}
+
 /// The shapes of heads in real READMEs (`tests/fixtures/html-readme-shapes.md`)
 /// as `parse` reads them today. The tree of HTML (roadmap 4.10.2) changes
 /// the reading of several of them; this is the baseline it is measured by.
 #[test]
 fn the_shapes_of_real_readmes_read_as_they_do_today() {
-    let source = include_str!("../../../../tests/fixtures/html-readme-shapes.md");
+    let source = include_str!("../../../../../tests/fixtures/html-readme-shapes.md");
     insta::assert_snapshot!(outline(source));
 }
 
@@ -204,44 +248,10 @@ fn words(inlines: &[Inline]) -> String {
         .collect()
 }
 
-#[test]
-fn a_start_tag_ends_a_p_that_its_block_left_open() {
-    use crate::typeset::parse::{html, wrappers::left_open};
-    let open = |source: &str| -> Vec<&str> {
-        (left_open(&html::events(source).expect("events")).iter())
-            .map(|element| element.name)
-            .collect()
-    };
-    assert_eq!(open("<p>a<p>b</p>"), Vec::<&str>::new());
-    assert_eq!(open("<p>a<div>b"), ["div"]);
-    assert_eq!(open("<div><p>a"), ["div", "p"]);
-}
-
-#[test]
-fn the_tags_of_an_html_block_are_read_once() {
-    use crate::typeset::parse::html::EVENTS;
-    for source in [
-        "<p align=\"center\">x</p>\n",
-        "<div align=\"center\">\n\nA\n\n</div>\n",
-        "<div>\n<img src=\"a.png\">\n",
-    ] {
-        let blocks = source
-            .split("\n\n")
-            .filter(|block| block.contains('<'))
-            .count();
-        EVENTS.with(|events| events.set(0));
-        parse(source);
-        assert_eq!(EVENTS.with(std::cell::Cell::get), blocks, "{source:?}");
-    }
-}
-
 // The growth tests below are the ones that the tree of HTML answers (roadmap
-// 4.10.2). Those with `ignore` fail on the reading of today, and are run by
-// hand with `--ignored`; the switch to the tree (step 5) takes the `ignore`
-// off.
+// 4.10.2): three of them failed on the reading before it.
 
 #[test]
-#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
 fn plain_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
     let plain = |n| format!("{}{}", "<div>\n\n".repeat(n), "</div>\n\n".repeat(n));
     let growth_plain = growth(plain, 500);
@@ -249,7 +259,6 @@ fn plain_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
 }
 
 #[test]
-#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
 fn centring_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
     let centring = |n| {
         let open = "<div align=\"center\">\n\n";
@@ -278,8 +287,61 @@ fn elements_never_ended_then_stray_end_tags_are_read_in_linear_time() {
 }
 
 #[test]
-#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
 fn many_details_in_one_html_block_are_read_in_linear_time() {
     let growth_one_block = growth(|n| "<details>t</details>".repeat(n), 500);
     assert!(growth_one_block < 24.0, "{growth_one_block}");
+}
+
+/// A document whose elements nest as deep as the tree lets them, 256, lays
+/// out in both layouts: the walks of the layouts are bounded by the cap.
+#[test]
+fn a_document_nested_to_the_cap_lays_out_in_both_layouts() {
+    use std::rc::Rc;
+
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::driver::{self, Content};
+    use crate::typeset::inputs::Inputs;
+    use crate::typeset::reading::engine::Reading;
+
+    let depth = |blocks: &[Block]| {
+        let mut depth = 0;
+        let mut blocks = blocks;
+        while let Some(Block::Centered(inner) | Block::Details { blocks: inner, .. }) =
+            blocks.first()
+        {
+            depth += 1;
+            blocks = inner;
+        }
+        depth
+    };
+    let cells = Inputs::new(Capabilities::kitty(60));
+    let reading = Inputs {
+        reading: Some(Reading {
+            pictures: Default::default(),
+            glyphs: Default::default(),
+            fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+            snap: false,
+            zoom: 100,
+        }),
+        caps: Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        },
+        ..Inputs::new(Capabilities::kitty(60))
+    };
+    for (open, end) in [
+        ("<div align=\"center\">", "</div>"),
+        ("<div align=\"center\">\n\n", "</div>\n\n"),
+        ("<details>", "</details>"),
+        ("<details>\n\n", "</details>\n\n"),
+    ] {
+        let source = format!("{}deep\n\n{}", open.repeat(300), end.repeat(300));
+        let document = parse(&source);
+        assert_eq!(depth(&document.blocks), 256, "{open:?}");
+        for inputs in [&cells, &reading] {
+            let laid = driver::laid(Content::Document(&document), inputs);
+            assert!(!laid.is_empty(), "{open:?}");
+        }
+    }
 }

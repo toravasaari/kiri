@@ -121,17 +121,17 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 | [`csv.rs`](../src/typeset/parse/csv.rs) | CSV and TSV source to document model: one table, the first row as its header, as GitHub shows such a file. Tests: `grown.rs`, `props.rs`, `tests.rs`. |
 | [`footnotes.rs`](../src/typeset/parse/footnotes.rs) | Footnotes: a reference in the text and the notes after the document, built from the anchors, links and lists that the document model already has. Tests: `tests.rs`. |
 | [`front_matter.rs`](../src/typeset/parse/front_matter.rs) | Front matter: a block of metadata at the very start of a file, between two delimiter lines, as Jekyll, Hugo and GitLab read it. Tests: `tests.rs`. |
-| [`html.rs`](../src/typeset/parse/html.rs) | The few HTML tags in Markdown that kiri reads instead of showing them as source. Tests: `tests.rs`, `tree.rs`, `tree/`. |
+| [`html.rs`](../src/typeset/parse/html.rs) | The HTML in Markdown: its tokens, attributes and entities, and the tree and the table by which kiri reads it. Tests: `tests.rs`. |
 | [`unknown.rs`](../src/typeset/parse/unknown.rs) | Markdown elements that the parser leaves out of the document. |
-| [`wrappers.rs`](../src/typeset/parse/wrappers.rs) | The HTML elements that wrap blocks of Markdown, joined into one block that holds the blocks between their tags. Tests: `props.rs`, `tests.rs`. |
 
 ### `src/typeset/parse/html/`
 
 | File | What it does |
 |---|---|
+| [`blocks.rs`](../src/typeset/parse/html/blocks.rs) | The tree of the HTML in a container read as the blocks of the model, by the table of elements, at the level "all". |
 | [`elements.rs`](../src/typeset/parse/html/elements.rs) | The table of HTML elements that kiri knows: one row for each, with its kind, the level of HTML it belongs to, what it holds and how it is treated. |
 | [`inline.rs`](../src/typeset/parse/html/inline.rs) | Tags of HTML in running text joined into the inlines they make. |
-| [`wrapper.rs`](../src/typeset/parse/html/wrapper.rs) | The HTML that wraps blocks: elements that centre, read whole, and the tags of `<p>`, `<div>`, `<center>` and `<details>` in an HTML block. Tests: `tests.rs`. |
+| [`tree.rs`](../src/typeset/parse/html/tree.rs) | The tree of the block elements in the HTML blocks of a document and the Markdown blocks between them, built once from their tokens. Tests: `tests.rs`. |
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)
 
