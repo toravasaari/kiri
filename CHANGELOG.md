@@ -29,6 +29,8 @@ kiri stays at 0.x until its command line settles.
 ### Fixed
 
 - Nested or stray tags in a paragraph no longer crash kiri or slow it down.
+- In reading mode a click follows a link narrower than a cell, such as a
+  footnote number.
 
 ## [0.3.1] - 2026-11-23
 

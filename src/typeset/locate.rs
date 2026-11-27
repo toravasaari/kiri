@@ -43,7 +43,7 @@ use crate::typeset::position::Pos;
 use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::{self, Parts};
 use crate::typeset::reading::page::ItemRef;
-use crate::typeset::reading::places::Centre;
+use crate::typeset::reading::places::{Centre, Found};
 use crate::typeset::style::{Line, Measured, Origin, Span};
 use crate::typeset::wrap;
 
@@ -876,6 +876,45 @@ impl Map {
         })
     }
 
+    /// The place of the link a click on column `column` of line `line`
+    /// follows: the one whose text is over the cell, wherever in it, and
+    /// not only the one at the cell's middle.
+    pub fn link_hit(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
+        let laid = lines.get(line)?;
+        let columns = column.checked_sub(wrap::width(&laid.lead))?;
+        let Some((parts, row, offset)) = self.page_row(laid, line) else {
+            return self.hit(lines, line, column);
+        };
+        let found = parts.link_in_cell(u16::try_from(columns).ok()?, row, offset);
+        match found {
+            Some(found) => Some(self.found_pos(found)),
+            None => self.hit(lines, line, column),
+        }
+    }
+
+    /// For a line `line`, `laid`, that is a row of a reading page: the page's
+    /// parts, the row's number in the page and how far its band is scrolled
+    /// (0 outside a band). `None` for any other line: it is not a page row.
+    fn page_row<'a>(&self, laid: &'a Line, line: usize) -> Option<(&'a Rc<Parts>, u16, u32)> {
+        let image = laid.image.as_ref()?;
+        let parts = image.page.as_ref()?;
+        let page = self.pages.iter().find(|page| page.rows.contains(&line))?;
+        let offset = match image.placement.key {
+            ImageKey::Band { offset, .. } => offset,
+            _ => 0,
+        };
+        Some((parts, u16::try_from(line - page.rows.start).ok()?, offset))
+    }
+
+    /// The place of what a page found.
+    fn found_pos(&self, found: Found) -> Pos {
+        let info = self.blocks.get(found.block);
+        match found.text {
+            Some((text, byte)) => Pos::text(info.file(), info.path(), text as usize, byte as usize),
+            None => Pos::block(info.file(), info.path()),
+        }
+    }
+
     /// `hit`, for a place in a text or an image, or the block of a row of
     /// an image that shows no text.
     fn text_at(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
@@ -886,23 +925,12 @@ impl Map {
         };
         let columns = column.checked_sub(wrap::width(&laid.lead))?;
         if let Some(image) = &laid.image {
-            if let Some(parts) = &image.page {
-                let page = self.pages.iter().find(|page| page.rows.contains(&line))?;
+            if let Some((parts, row, offset)) = self.page_row(laid, line) {
                 let (width, height) = parts.cells().1;
                 let x = (columns as f32 + 0.5) * f32::from(width);
-                let y = ((line - page.rows.start) as f32 + 0.5) * f32::from(height);
-                let offset = match image.placement.key {
-                    ImageKey::Band { offset, .. } => offset,
-                    _ => 0,
-                };
+                let y = (f32::from(row) + 0.5) * f32::from(height);
                 let found = parts.found_at(x, y, offset)?;
-                let info = self.blocks.get(found.block);
-                return Some(match found.text {
-                    Some((text, byte)) => {
-                        Pos::text(info.file(), info.path(), text as usize, byte as usize)
-                    }
-                    None => Pos::block(info.file(), info.path()),
-                });
+                return Some(self.found_pos(found));
             }
             return Some(match &image.origin {
                 Some(origin) => place(origin.text, origin.doc.start),
