@@ -2451,6 +2451,25 @@ pub const ROWS: &[Row] = &[
             p "Anchor(\"y\")" @3=18..32
         "#,
     },
+    // Cases that `examples/S01-text.md` showed and no longer does.
+    Row {
+        name: "a one-line details reads the entities of its summary and its text",
+        source: "<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>\n",
+        blocks: r#"
+            details "Fish & chips — 5\u{a0}€" @1=0..128
+              p "One line — © … &mdash; &Mdash;" @1~0..128
+        "#,
+    },
+    Row {
+        name: "a details ends a centred p whose end tag is left out",
+        source: "<p align=\"center\">A centred line before a details.\n<details>\n<summary>Not centred</summary>\n\nThe details and what it holds are not centred.\n\n</details>\n",
+        blocks: r#"
+            centred @1=0..51
+              p "A centred line before a details." @1~0..51
+            details "Not centred" @2=51..151
+              p "The details and what it holds are not centred." @5=93..139
+        "#,
+    },
 ];
 
 /// What GitHub's level reads differently from the level "all": the tags
