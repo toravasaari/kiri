@@ -70,18 +70,43 @@ clippy:
 .PHONY: test
 test:
 	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace \
-			&& cargo nextest run --workspace --no-default-features; \
+		$(NEXTEST) --workspace \
+			&& $(NEXTEST) --workspace --no-default-features; \
 	else \
 		echo "test: cargo-nextest not installed, using cargo test (cargo install --locked cargo-nextest)"; \
 		cargo test --workspace \
 			&& cargo test --workspace --no-default-features; \
 	fi
 
-# The tests that take more than 5 s on an idle host. `check` runs them;
-# `check-fast` and the checks and tests of one part leave them out. A test
-# that grows slower than that goes on this list.
+# cargo nextest run, followed by scripts/slow-tests.py's look at how long
+# each test took.
+NEXTEST = python3 scripts/slow-tests.py
+
+# The tests that take more than 5 s. `check` runs them; `check-fast` and the
+# checks and tests of one part leave them out. A test over 5 s (10 s in a
+# container) in two runs in a row goes on this list by itself, first in it,
+# through $(NEXTEST); commit the change.
 SLOW_TESTS = \
+	typeset::reading::places::tests::the_table_has_the_blocks_of_a_page_in_the_documents_order_and_each_row_is_in_its_block \
+	typeset::wrap::tests::wrapping_text_at_a_fraction_never_overflows \
+	cli_pager::ctrl_c_ends_kiri_at_once_while_the_image_files_are_read_before_the_pager \
+	examples::a_code_block_longer_than_a_stretch_is_laid_out_in_steps_as_it_is_whole \
+	pager::tests::growing::a_followed_file_that_changed_before_its_end_is_laid_out_afresh \
+	pager::tests::stretches::a_key_that_comes_in_two_pieces_is_one_key_while_the_layout_works \
+	props_layout::the_generated_documents_reach_images_tables_and_code \
+	session::unlaid::a_search_over_a_layout_with_a_part_not_laid_out_is_the_whole_layouts \
+	session::unlaid::the_stops_of_tab_over_a_layout_with_a_part_not_laid_out_are_the_whole_layouts \
+	typeset::locate::tests::a_piece_starts_at_its_first_line \
+	typeset::locate::tests::the_first_place_on_a_line_and_the_first_line_of_a_place_agree \
+	typeset::measured::grown::a_file_grown_at_random_places_is_laid_out_as_afresh \
+	typeset::measured::two_large_blocks_and_two_files_come_to_the_whole_layout_wherever_the_view_jumps \
+	typeset::reading::engine::tests::a_narrow_part_draws_what_the_page_draws_and_leaves_the_rest_empty \
+	typeset::reading::page::tests::a_table_of_single_words_over_the_room_by_a_hair_keeps_its_words_whole \
+	typeset::reading::places::tests::every_byte_of_a_text_on_a_page_is_shown_but_what_the_layout_names_it_leaves_out \
+	typeset::reading::places::tests::the_block_of_every_row_of_a_page_is_the_one_a_scan_of_all_blocks_finds \
+	typeset::reading::places::tests::the_links_of_every_row_of_a_page_are_the_ones_a_scan_of_all_links_finds \
+	typeset::reading::places::tests::what_a_text_on_a_page_shows_is_what_the_text_it_names_says \
+	typeset::text::tests::every_word_a_layout_shows_is_in_the_text_of_the_document \
 	typeset::locate::tests::what_is_at_a_cell_of_a_page_is_a_place_that_is_shown_on_that_row \
 	typeset::reading::places::tests::what_is_under_a_glyph_of_a_text_on_a_page_is_the_place_it_shows \
 	pager::tests::stretches::paging_through_a_csv_of_a_million_rows_makes_cells_of_the_rows_near_the_view_only \
@@ -113,7 +138,7 @@ NO_NEXTEST = echo "$@: cargo-nextest not installed, using cargo test (cargo inst
 check-fast: fmt-check module-map-check
 	cargo clippy --workspace --all-targets -- -D warnings
 	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace -E 'not ($(SLOW_FILTER))'; \
+		$(NEXTEST) --workspace -E 'not ($(SLOW_FILTER))'; \
 	else \
 		$(NO_NEXTEST); \
 		cargo test --workspace -- $(SLOW_SKIPS); \
@@ -123,7 +148,7 @@ check-fast: fmt-check module-map-check
 # `check-it` is `check-fast` for them.
 define test_it
 @if command -v cargo-nextest >/dev/null; then \
-	cargo nextest run --workspace \
+	$(NEXTEST) --workspace \
 		-E 'binary_id(kiri-the-reader::it) and not ($(SLOW_FILTER))'; \
 else \
 	$(NO_NEXTEST); \
@@ -148,7 +173,7 @@ check-it: fmt-check
 # test's path, so more tests run, of other parts too.
 define test_area
 @if command -v cargo-nextest >/dev/null; then \
-	cargo nextest run --workspace \
+	$(NEXTEST) --workspace \
 		-E 'package(kiri-the-reader) and kind(lib) and test(/^$(1)::/) and not ($(SLOW_FILTER))'; \
 else \
 	$(NO_NEXTEST); \

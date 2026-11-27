@@ -1,0 +1,8 @@
+# A test that runs longer than this shows as SLOW. scripts/slow-tests.py,
+# which the make targets run the tests with, reads the JUnit report and puts
+# a test that is slow in two runs in a row on SLOW_TESTS in the Makefile.
+[profile.default]
+slow-timeout = { period = "5s" }
+
+[profile.default.junit]
+path = "junit.xml"
