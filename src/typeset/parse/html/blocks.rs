@@ -439,6 +439,7 @@ impl<'t> Reader<'t> {
                     | NodeKind::RawTag { .. }
                     | NodeKind::Comment
                     | NodeKind::Tag { .. } => true,
+                    NodeKind::Element(inner) if self.is_summary_heading(open, inner, child) => true,
                     NodeKind::Element(inner) => {
                         inner.row.kind == Kind::RawText
                             && inner.row.treatment == Treatment::Source
@@ -446,6 +447,15 @@ impl<'t> Reader<'t> {
                     }
                     _ => false,
                 })
+    }
+
+    /// Whether `inner` at `node` is a whole heading in the summary `open`,
+    /// as GitHub allows: it holds text, and is ended by its own end tag.
+    fn is_summary_heading(&self, open: &Opened, inner: &Opened, node: usize) -> bool {
+        open.row.treatment == Treatment::Summary
+            && matches!(inner.row.treatment, Treatment::Heading(_))
+            && matches!(inner.closing, Closing::End(_))
+            && self.holds_allowed(node, inner)
     }
 
     /// The blocks of the element `open`, ended, at `node`.
@@ -583,11 +593,20 @@ impl<'t> Reader<'t> {
         })
     }
 
-    /// The inlines of the text that `node` holds.
+    /// The inlines of the text that `node` holds. A heading in a summary
+    /// gives what it holds, in order with the text beside it.
     fn inlines(&self, node: usize) -> Vec<Inline> {
-        let leaves = self.children[node]
-            .iter()
-            .filter_map(|&child| self.leaf(child));
+        let in_summary = matches!(&self.tree.nodes[node].kind,
+            NodeKind::Element(open) if open.row.treatment == Treatment::Summary);
+        let leaves = self.children[node].iter().flat_map(|&child| {
+            let heading = in_summary
+                && matches!(&self.tree.nodes[child].kind,
+                    NodeKind::Element(inner) if matches!(inner.row.treatment, Treatment::Heading(_)));
+            let own = (!heading).then(|| self.leaf(child)).flatten();
+            let held = if heading { self.children[child].as_slice() } else { &[] };
+            own.into_iter()
+                .chain(held.iter().filter_map(|&inner| self.leaf(inner)))
+        });
         run_inlines(leaves, self.level, self.tags)
     }
 

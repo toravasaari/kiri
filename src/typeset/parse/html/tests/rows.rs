@@ -1053,6 +1053,32 @@ pub const ROWS: &[Row] = &[
             p "After." @10=91..97
         "#,
     },
+    // A summary may hold a heading, as on GitHub: the summary is what the
+    // heading holds, in the summary's own style.
+    Row {
+        name: "a details whose summary is a heading",
+        source: "<details><summary><h2>Big</h2></summary>body</details>\n",
+        blocks: r#"
+            details "Big" @1=0..54
+              p "body" @1~0..54
+        "#,
+    },
+    Row {
+        name: "a details whose summary is a centred heading with tags",
+        source: "<details>\n<summary><h3 align=\"center\">Big <b>one</b></h3></summary>\n\nbody\n\n</details>\n",
+        blocks: r#"
+            details "Big **one**" @1=0..85
+              p "body" @4=69..73
+        "#,
+    },
+    Row {
+        name: "a details whose summary holds text and a heading",
+        source: "<details><summary>A <h4>B</h4></summary>body</details>\n",
+        blocks: r#"
+            details "A B" @1=0..54
+              p "body" @1~0..54
+        "#,
+    },
     Row {
         name: "a details in a list item",
         source: "- Item\n  <details>\n  <summary>S</summary>\n\n  In.\n\n  </details>\n",
