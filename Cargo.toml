@@ -174,3 +174,10 @@ kiri-tr-image-utils.opt-level = 3
 # 12 GB instead of 21 GB.
 [profile.dev.package."*"]
 debug = "line-tables-only"
+
+# kiri's own crates too: the tests ran about a tenth faster (test-typeset
+# 12.6 s instead of 14.0 s on the maintainer's host), and the rebuild took
+# as long. A debugger then shows no variables of kiri either; remove this
+# section for a session that needs them.
+[profile.dev]
+debug = "line-tables-only"
