@@ -172,11 +172,12 @@ fn plain_html_readme_shapes() {
     ));
 }
 
-/// A block of nothing but `<a name>` or `<a id>` draws no row of its own: its
-/// places go to the next block, or the one before it, so the blank rows
-/// between two blocks are those of any two blocks.
+/// A block of nothing but `<a name>` or `<a id>` draws no row of its own where
+/// a paragraph or heading can take its places, the next one or the one before
+/// it: the blank rows between two blocks are those of any two blocks. Where
+/// none can, the block stays and draws an empty row.
 #[test]
-fn a_block_of_only_anchors_adds_no_rows() {
+fn a_block_of_only_anchors_adds_no_rows_where_a_paragraph_can_take_it() {
     let plain = |source: &str| render(source, &inputs(&Capabilities::plain(WIDTH), &fixed_theme()));
     assert_eq!(plain("a\n\n<a name=\"top\"></a>\n\nb\n"), "  a\n\n  b\n");
     assert_eq!(
