@@ -666,7 +666,7 @@ the rest need more of the layout.
   and `<mark>` in the theme's `mark` colours. (done)
 - `<b>`, `<strong>`, `<i>`, `<em>`, `<s>`, `<del>` and `<code>` in running
   text. (done)
-- `<u>` and `<a href>` around text.
+- `<u>` and `<a href>` around text. (done)
 - Tags inside a `<summary>`, such as `<b>`, `<i>` and `<code>`, which
   GitHub READMEs often write. (done)
 
@@ -696,10 +696,10 @@ Opening and closing `<details>` needs G1.11.2 and G7.3.4.
 - Links written as HTML: a centred row of `<a>` tags, often around
   `<strong>`, in a `<p align="center">` below a README's title, as many
   GitHub READMEs and Hugging Face model cards have it. Such a block stays
-  source today.
+  source today. (done)
 - Centred headings and paragraphs, such as `<h1 align="center">` and
   `<p align="center">` around text, as README titles often are. A heading
-  is drawn left-aligned today (4.10.2.3); a paragraph stays source.
+  is drawn left-aligned today (4.10.2.3); a paragraph stays source. (done)
 
 ##### 4.10.2.6 HTML lists and tables
 
@@ -1838,7 +1838,7 @@ same there. It does not happen in kitty on a virtual display, so the
 window and cell sizes the terminal reports are the first suspect. Once it
 is understood, the rows left free below the image may become a setting.
 
-#### B2 Tags of an HTML wrapper show as source
+#### B2 Tags of an HTML wrapper show as source (fixed)
 
 An `<img>` set apart by blank lines inside a wrapper, such as
 `<p align="center">`, blank line, `<img>`, blank line, `</p>`, is drawn,

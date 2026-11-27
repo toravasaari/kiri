@@ -9,15 +9,14 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
-- The HTML heads of README files: centred titles, logos and link rows, and `<a>` links and `<u>` in text.
+- The HTML heads of README files: centred titles, logos and link rows, `<a>`
+  links, and `<u>`, `<span>`, `<ins>` and `<strike>` in text. Two settings choose
+  how much HTML is read, GitHub's or all of it, and whether tags with no
+  effect are shown muted or hidden.
 - Footnotes, shown at the end of the document with links in both directions.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
   the pager as you scroll.
-- Two settings for the HTML in Markdown: which of it is read, GitHub's by
-  default or all of it, and whether tags with no effect are shown muted or
-  hidden.
-- `<span>`, `<ins>` and `<strike>` in text.
 
 ### Changed
 
@@ -25,13 +24,11 @@ kiri stays at 0.x until its command line settles.
 - Horizontal rules are narrowed to the width of the text.
 - The header above each of several files spans the whole window and has the
   status line's colour; the theme key `bar_background` sets both.
-- A plain `<div>` or `<p>` is read as its text instead of shown as source.
-- A `<p align="center">` around Markdown is not centred, as on GitHub; a
-  `<div align="center">` still is.
-- `<center>` is read only when all of the HTML is read.
-- A `<details>` or heading that is never closed shows its tags muted, and
-  the rest is read.
-- Centred HTML that blank lines cut apart is read whole, as a browser reads it.
+- HTML in Markdown is read more as a browser reads it: a plain `<div>` or `<p>`
+  is its text instead of source, centred HTML that blank lines cut apart is
+  read whole, and a `<details>` or heading that is never closed shows its tags
+  muted. A `<p align="center">` around Markdown is not centred, as on GitHub,
+  and `<center>` is read only when all of the HTML is read.
 
 ### Fixed
 
