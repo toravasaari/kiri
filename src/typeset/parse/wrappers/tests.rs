@@ -38,21 +38,25 @@ fn every_row_of_the_table_reads_as_its_blocks() {
     );
 }
 
-/// How the time to parse `make(n)` grows from `n` to eight times `n`: the
-/// least of five runs at each size, the larger over the smaller. Linear
-/// growth is about eight; the square of `n` would be about sixty-four.
+/// The shapes of heads in real READMEs (`tests/fixtures/html-readme-shapes.md`)
+/// as `parse` reads them today. The tree of HTML (roadmap 4.10.2) changes
+/// the reading of several of them; this is the baseline it is measured by.
+#[test]
+fn the_shapes_of_real_readmes_read_as_they_do_today() {
+    let source = include_str!("../../../../tests/fixtures/html-readme-shapes.md");
+    insta::assert_snapshot!(outline(source));
+}
+
+/// How the time to parse `make(n)` grows from `n` to eight times `n`
+/// (`crate::testing::growth`).
 fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
-    let least = |source: &str| {
-        (0..5)
-            .map(|_| {
-                let start = std::time::Instant::now();
-                std::hint::black_box(parse(source));
-                start.elapsed().as_secs_f64()
-            })
-            .fold(f64::INFINITY, f64::min)
-    };
-    let (small, large) = (make(n), make(8 * n));
-    least(&large) / least(&small).max(1e-3)
+    crate::testing::growth(
+        |source| {
+            parse(source);
+        },
+        make,
+        n,
+    )
 }
 
 #[test]
@@ -229,4 +233,53 @@ fn the_tags_of_an_html_block_are_read_once() {
         parse(source);
         assert_eq!(EVENTS.with(std::cell::Cell::get), blocks, "{source:?}");
     }
+}
+
+// The growth tests below are the ones that the tree of HTML answers (roadmap
+// 4.10.2). Those with `ignore` fail on the reading of today, and are run by
+// hand with `--ignored`; the switch to the tree (step 5) takes the `ignore`
+// off.
+
+#[test]
+#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
+fn plain_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
+    let plain = |n| format!("{}{}", "<div>\n\n".repeat(n), "</div>\n\n".repeat(n));
+    let growth_plain = growth(plain, 500);
+    assert!(growth_plain < 24.0, "plain: {growth_plain}");
+}
+
+#[test]
+#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
+fn centring_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
+    let centring = |n| {
+        let open = "<div align=\"center\">\n\n";
+        format!("{}{}", open.repeat(n), "</div>\n\n".repeat(n))
+    };
+    let growth_centring = growth(centring, 500);
+    assert!(growth_centring < 24.0, "centring: {growth_centring}");
+}
+
+/// Reads in linear time today as well, as the tree must.
+#[test]
+fn elements_never_ended_then_stray_end_tags_are_read_in_linear_time() {
+    let stray = |n| format!("{}{}", "<div>\n\n".repeat(n), "</p>\n\n".repeat(n));
+    let growth_stray = growth(stray, 500);
+    assert!(growth_stray < 24.0, "stray end tags: {growth_stray}");
+    let blocked = |n| {
+        let (open, end) = ("<center>\n\n<details>\n\n", "</center>\n\n");
+        format!(
+            "{open}{}{}</details>\n",
+            "<div>\n\n".repeat(n),
+            end.repeat(n)
+        )
+    };
+    let growth_blocked = growth(blocked, 500);
+    assert!(growth_blocked < 24.0, "blocked: {growth_blocked}");
+}
+
+#[test]
+#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
+fn many_details_in_one_html_block_are_read_in_linear_time() {
+    let growth_one_block = growth(|n| "<details>t</details>".repeat(n), 500);
+    assert!(growth_one_block < 24.0, "{growth_one_block}");
 }

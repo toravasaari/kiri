@@ -15,6 +15,7 @@ use comrak::nodes::{
 };
 use comrak::{Arena, Node, Options, parse_document};
 
+use self::html::{Joined, html_inlines, linked_image};
 use self::unknown::Unknown;
 use self::wrappers::{Read, centred, join_wrappers, starts_element};
 use crate::typeset::diagnostic::Diagnostic;
@@ -489,7 +490,7 @@ fn inlines(parent: Node<'_>, unknown: &mut Unknown) -> Vec<Inline> {
 }
 
 fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) -> Vec<Inline> {
-    let mut inlines = Vec::new();
+    let mut joined = Joined::default();
     // Whether the last node was math read as text, which the text around
     // it joins.
     let mut after_math = false;
@@ -497,25 +498,28 @@ fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) 
         if let NodeValue::Math(math) = &node.data().value {
             if math.display_math {
                 for inline in math_as_written(math) {
-                    push_joined(&mut inlines, inline);
+                    joined.push_joined(inline);
                 }
                 after_math = true;
             } else {
-                inlines.push(Inline::Formula {
+                joined.push(Inline::Formula {
                     source: formula_source(&math.literal),
                     written: math_as_written(math),
                 });
                 after_math = false;
             }
+        } else if let NodeValue::HtmlInline(tag) = &node.data().value {
+            joined.push_html(tag.clone());
+            after_math = false;
         } else if let Some(inline) = inline(node, unknown) {
             match after_math {
-                true => push_joined(&mut inlines, inline),
-                false => push_inline(&mut inlines, inline),
+                true => joined.push_joined(inline),
+                false => joined.push(inline),
             }
             after_math = false;
         }
     }
-    inlines
+    joined.into_inlines()
 }
 
 /// The LaTeX of an inline formula written as `literal` between dollars:
@@ -544,14 +548,6 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
         .unwrap_or_default()
 }
 
-/// Pushes `inline`, joining it to the text before it when both are text.
-fn push_joined(inlines: &mut Vec<Inline>, inline: Inline) {
-    match (inlines.last_mut(), inline) {
-        (Some(Inline::Text(before)), Inline::Text(text)) => before.push_str(&text),
-        (_, inline) => push_inline(inlines, inline),
-    }
-}
-
 /// The `<h1>` to `<h6>` elements in the block of HTML `source`, with the
 /// tags kiri reads in their content read, as in a heading of its own
 /// (see `html::headings`).
@@ -561,147 +557,6 @@ pub fn html_headings(source: &str) -> Vec<InnerHeading> {
         heading.content = html_inlines(std::mem::take(&mut heading.content));
     }
     found
-}
-
-/// Text and inline HTML, as `html` gives the content of a `<summary>`,
-/// with the tags kiri reads read.
-fn html_inlines(content: Vec<Inline>) -> Vec<Inline> {
-    let mut inlines = Vec::new();
-    for inline in content {
-        let inline = match inline {
-            Inline::Html(tag) => html_inline(tag),
-            inline => inline,
-        };
-        push_inline(&mut inlines, inline);
-    }
-    inlines
-}
-
-/// Pushes `inline`, joining it with the inlines before it into the
-/// element that HTML tags among them make.
-fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
-    inlines.push(inline);
-    join_image_link(inlines);
-    join_phrase(inlines);
-}
-
-/// `<a href>`, an `<img>` and `</a>` at the end of `inlines` as a link
-/// around the image (`named_link`).
-fn join_image_link(inlines: &mut Vec<Inline>) {
-    // `<a href>`, an `<img>` and `</a>` are a link around the image, as
-    // `[![]()]()` is.
-    if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
-        && html::is_link_end(end)
-        && let Some(url) = html::link_start(start)
-    {
-        inlines.pop();
-        let image = inlines.pop().expect("the image");
-        let Some(Inline::Html(start)) = inlines.pop() else {
-            unreachable!("the start tag")
-        };
-        named_link(inlines, anchor_ids(&start), Some(url), vec![image]);
-    }
-}
-
-/// Adds to `inlines` the places `ids` that an `<a>` names, as anchors, and
-/// `content`, in a link to `url` when the `<a>` has an `href`.
-fn named_link(
-    inlines: &mut Vec<Inline>,
-    ids: Vec<String>,
-    url: Option<String>,
-    content: Vec<Inline>,
-) {
-    inlines.extend(ids.into_iter().map(Inline::Anchor));
-    match url {
-        Some(url) => inlines.push(Inline::Link {
-            url,
-            title: None,
-            content,
-        }),
-        None => inlines.extend(content),
-    }
-}
-
-/// A closing tag such as `</kbd>` at the end of `inlines` ends the element
-/// its last opening tag among them started: the two tags and what is
-/// between them become the element. A `</a>` is ended by the last `<a>`
-/// among them, one without an `href` as well, so that it does not end the
-/// link before it: that one makes no link, only the places it names.
-fn join_phrase(inlines: &mut Vec<Inline>) {
-    if let Some(Inline::Html(end)) = inlines.last()
-        && let Some(phrase) = html::phrase_end(end)
-        && let Some(start) = open_start(&inlines[..inlines.len() - 1], phrase)
-    {
-        // `<code>` is code only around plain text; else both tags stay.
-        let code = match phrase {
-            html::Phrase::Code => match only_text(&inlines[start + 1..inlines.len() - 1]) {
-                Some(code) => code,
-                None => return,
-            },
-            _ => String::new(),
-        };
-        // An `<a>` names the places of its `id` and `name`; with an
-        // `href` it is a link to it, which has to hold something.
-        let link = match (phrase, &inlines[start]) {
-            (html::Phrase::A, Inline::Html(tag)) => Some((tag.clone(), html::link_start(tag))),
-            _ => None,
-        };
-        if matches!(link, Some((_, Some(_)))) && start + 2 == inlines.len() {
-            return;
-        }
-        inlines.pop();
-        let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
-        if let Some((tag, url)) = link {
-            return named_link(inlines, anchor_ids(&tag), url, content);
-        }
-        inlines.push(match phrase {
-            html::Phrase::A => unreachable!("a link is made above"),
-            html::Phrase::U => Inline::Underline(content),
-            html::Phrase::Kbd => Inline::Kbd(content),
-            html::Phrase::Mark => Inline::Mark(content),
-            html::Phrase::Sub => Inline::Subscript(content),
-            html::Phrase::Sup => Inline::Superscript(content),
-            html::Phrase::B | html::Phrase::Strong => Inline::Strong(content),
-            html::Phrase::I | html::Phrase::Em => Inline::Emphasis(content),
-            html::Phrase::S | html::Phrase::Del => Inline::Strikethrough(content),
-            html::Phrase::Code => Inline::Code(code),
-        });
-    }
-}
-
-/// Where the start tag of `phrase` is among `inlines` that no end tag
-/// among them closes: the last one, but for those that a pair of tags left
-/// as they are, such as an empty `<a href>` and its `</a>`, closes.
-fn open_start(inlines: &[Inline], phrase: html::Phrase) -> Option<usize> {
-    let mut closed = 0;
-    (0..inlines.len()).rev().find(|&at| {
-        let Inline::Html(tag) = &inlines[at] else {
-            return false;
-        };
-        if html::phrase_end(tag) == Some(phrase) {
-            closed += 1;
-            return false;
-        }
-        let opens = html::phrase_start(tag) == Some(phrase)
-            || (phrase == html::Phrase::A && html::is_anchor_start(tag));
-        if opens && closed > 0 {
-            closed -= 1;
-            return false;
-        }
-        opens
-    })
-}
-
-/// The text of `inlines` when they are only non-empty text.
-fn only_text(inlines: &[Inline]) -> Option<String> {
-    let mut text = String::new();
-    for inline in inlines {
-        match inline {
-            Inline::Text(part) => text.push_str(part),
-            _ => return None,
-        }
-    }
-    (!text.is_empty()).then_some(text)
 }
 
 fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
@@ -726,47 +581,11 @@ fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
         }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
-        NodeValue::HtmlInline(tag) => html_inline(tag.clone()),
         NodeValue::FootnoteReference(reference) => footnotes::reference(reference),
         _ => {
             unknown.note(node);
             return None;
         }
-    })
-}
-
-/// One tag of inline HTML: a line break, an image, or else the tag.
-fn html_inline(tag: String) -> Inline {
-    if html::is_line_break(&tag) {
-        return Inline::LineBreak;
-    }
-    match html::inline_img(&tag) {
-        Some(img) => image(img),
-        None => Inline::Html(tag),
-    }
-}
-
-/// An HTML `<img>` as Markdown would give it: the image, or a link around
-/// it when the HTML had one, after the places that the `<a>` names.
-fn linked_image(mut img: html::Img) -> Vec<Inline> {
-    let (url, ids) = (img.link.take(), std::mem::take(&mut img.ids));
-    let mut inlines = Vec::new();
-    named_link(&mut inlines, ids, url, vec![image(img)]);
-    inlines
-}
-
-/// An HTML `<img>` as the image Markdown would give.
-fn image(img: html::Img) -> Inline {
-    let alt = if img.alt.is_empty() {
-        Vec::new()
-    } else {
-        vec![Inline::Text(img.alt)]
-    };
-    Inline::Image(Image {
-        url: img.src,
-        alt,
-        width: img.width,
-        height: img.height,
     })
 }
 

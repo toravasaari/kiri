@@ -7,101 +7,18 @@
 
 use std::ops::Range;
 
+use super::elements::{self, Element, Phrase, heading_level, is_centred, is_raw_text};
 use super::{
-    Img, Phrase, Tag, Token, block_img, heading_level, id_of, inlines, is_line_break, skip_blank,
-    spanned_tokens,
+    Img, Tag, Token, block_img, id_of, inlines, is_line_break, skip_blank, spanned_tokens,
 };
 use crate::typeset::model::Inline;
-
-/// Whether the start tag of an element centres what it holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Centres {
-    Always,
-    /// When its `align` is `center`.
-    ByAlign,
-    Never,
-}
-
-/// An element whose tags the joiner of wrappers reads, and what its tags
-/// do: a row of `ELEMENTS`.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Element {
-    pub name: &'static str,
-    pub centres: Centres,
-    /// A browser ends it without its end tag, at the end tag of an element
-    /// round it and at the start of an element that ends it.
-    pub implied_end: bool,
-    /// Its end tag ends the elements still open inside it.
-    pub ends_inside: bool,
-    /// Its start tag opens it when other things share its HTML block too.
-    pub opens_beside: bool,
-}
-
-/// The elements whose tags join blocks. The start tag of each ends a `<p>`
-/// that is open, as in a browser.
-pub static ELEMENTS: [Element; 4] = [
-    Element {
-        name: "p",
-        centres: Centres::ByAlign,
-        implied_end: true,
-        ends_inside: false,
-        opens_beside: true,
-    },
-    Element {
-        name: "div",
-        centres: Centres::ByAlign,
-        implied_end: false,
-        ends_inside: false,
-        opens_beside: true,
-    },
-    Element {
-        name: "center",
-        centres: Centres::Always,
-        implied_end: false,
-        ends_inside: false,
-        opens_beside: true,
-    },
-    Element {
-        name: "details",
-        centres: Centres::Never,
-        implied_end: false,
-        ends_inside: true,
-        opens_beside: false,
-    },
-];
-
-/// The element of `ELEMENTS` named `name`, in lower case.
-fn element(name: &str) -> Option<&'static Element> {
-    ELEMENTS.iter().find(|element| element.name == name)
-}
-
-impl Element {
-    /// Whether its start tag `tag` centres what it holds.
-    fn centres_with(&self, tag: &Tag) -> bool {
-        match self.centres {
-            Centres::Always => true,
-            Centres::ByAlign => is_centred(tag),
-            Centres::Never => false,
-        }
-    }
-}
-
-/// Whether the `align` of `tag` is `center`, in any case, as a browser
-/// reads it.
-fn is_centred(tag: &Tag) -> bool {
-    (tag.get("align")).is_some_and(|align| {
-        align
-            .trim_matches(|c: char| c.is_ascii_whitespace())
-            .eq_ignore_ascii_case("center")
-    })
-}
 
 /// What a tag of an HTML block is to the joiner of wrappers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mark {
-    /// The start tag of an element of `ELEMENTS`, and whether it centres.
+    /// The start tag of an element of the table, and whether it centres.
     Start(&'static Element, bool),
-    /// The end tag of an element of `ELEMENTS`.
+    /// The end tag of an element of the table.
     End(&'static Element),
     /// A `<summary>` start tag, with the bytes of its content up to the
     /// `</summary>` after it and the byte after that; `None` without one.
@@ -133,11 +50,10 @@ thread_local! {
 pub fn events(html: &str) -> Option<Vec<Event>> {
     #[cfg(test)]
     EVENTS.with(|events| events.set(events.get() + 1));
-    const RAW: [&str; 4] = ["pre", "script", "style", "textarea"];
     let tokens = spanned_tokens(html)?;
     let first = (tokens.iter())
         .find(|(token, _)| !matches!(token, Token::Text(text) if text.trim().is_empty()));
-    if matches!(first, Some((Token::Open(tag), _)) if RAW.contains(&tag.name.as_str())) {
+    if matches!(first, Some((Token::Open(tag), _)) if is_raw_text(&tag.name)) {
         return None;
     }
     // The `</summary>` after each token, found in one pass from the end.
@@ -158,11 +74,11 @@ pub fn events(html: &str) -> Option<Vec<Event>> {
             Token::Open(tag) if tag.name == "summary" => {
                 Mark::Summary(close.map(|close| (span.end..close.start, close.end)))
             }
-            Token::Open(tag) => match element(&tag.name) {
+            Token::Open(tag) => match elements::joiner(&tag.name) {
                 Some(element) => Mark::Start(element, element.centres_with(tag)),
                 None => Mark::Other,
             },
-            Token::Close(name) => element(name).map_or(Mark::Other, Mark::End),
+            Token::Close(name) => elements::joiner(name).map_or(Mark::Other, Mark::End),
         };
         events.push(Event {
             mark,
@@ -312,7 +228,7 @@ fn element_pieces(html: &str) -> Option<Vec<Piece>> {
         return None;
     };
     let heading = heading_level(&tag.name).filter(|_| is_centred(tag));
-    let element = element(&tag.name).filter(|element| element.centres_with(tag));
+    let element = elements::joiner(&tag.name).filter(|element| element.centres_with(tag));
     if heading.is_none() && element.is_none() {
         return None;
     }

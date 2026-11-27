@@ -6,7 +6,7 @@
 //! The elements are `<details>`, and `<p>`, `<div>` and `<center>` that
 //! centre what they hold. Their tags, as `html::events` reads them, go on
 //! one stack of open elements; what the tags of each element do is the
-//! table `ELEMENTS` of `html/wrapper.rs`, and kiri's own rules are at
+//! table of elements, `html/elements.rs`, and kiri's own rules are at
 //! `join_wrappers`.
 
 use comrak::nodes::{LineColumn, Sourcepos};
@@ -311,7 +311,7 @@ impl Joiner {
     /// Ends the `<p>` elements open last, as a start tag that ends a `<p>`
     /// does.
     fn end_open_p(&mut self) {
-        while let Some(open) = self.open.pop_if(|open| open.element.implied_end) {
+        while let Some(open) = self.open.pop_if(|open| open.element.end_optional) {
             self.end_implied(open);
         }
     }
@@ -324,7 +324,7 @@ impl Joiner {
             if open.element == element {
                 return Some(at);
             }
-            if !element.ends_inside && !open.element.implied_end {
+            if !element.ends_inside && !open.element.end_optional {
                 return None;
             }
         }
@@ -355,7 +355,7 @@ impl Joiner {
     /// that a browser ends so and that centres becomes one block of what it
     /// holds, and any other, or one that holds nothing, stays source.
     fn end_implied(&mut self, open: Open) {
-        if open.element.implied_end
+        if open.element.end_optional
             && matches!(open.kind, Kind::Centred(_))
             && !open.blocks.is_empty()
         {
@@ -616,7 +616,7 @@ pub(super) fn left_open(events: &[Event]) -> Vec<&'static Element> {
     for event in events {
         match event.mark {
             Mark::Start(element, _) => {
-                while open.pop_if(|open| open.implied_end).is_some() {}
+                while open.pop_if(|open| open.end_optional).is_some() {}
                 if element.opens_beside {
                     open.push(element);
                 }

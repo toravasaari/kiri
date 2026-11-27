@@ -1374,6 +1374,16 @@ const CUT_DIFFERENTLY: &[(&str, &str)] = &[
         "a footnote reference in it reads as plain text without its note",
     ),
     (
+        "html-readme-shapes.md#10 (details)",
+        "the bytes of the `<details>` run on into the `</div>` after its \
+     `</details>` in the same HTML block, which stays source on its own",
+    ),
+    (
+        "html-readme-shapes.md#12 (details)",
+        "the bytes of the `<details>` run on into the `<p></p>` after its \
+     `</details>` in the same HTML block, which stays source on its own",
+    ),
+    (
         "html-tags.md#17 (details)",
         "unexplained: the bytes of the `<details>` run on into the text after \
      its `</details>` in the same HTML block, which reads as a paragraph of \
