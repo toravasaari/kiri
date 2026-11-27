@@ -66,7 +66,7 @@ fn centred(shapes: Vec<Shape>) -> Option<Shape> {
 
 // ---------- the browser ----------
 
-fn comrak_html(source: &str) -> String {
+pub fn comrak_html(source: &str) -> String {
     let mut options = crate::typeset::parse::options();
     options.render.r#unsafe = true;
     comrak::markdown_to_html(source, &options)
