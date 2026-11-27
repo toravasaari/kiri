@@ -119,11 +119,32 @@ pub(in crate::typeset::parse) fn read(
     let mut children = vec![Vec::new(); count + 1];
     let mut last: Vec<usize> = (0..count).collect();
     let mut markdown_in = vec![false; count];
+    // The last byte that each node and what is in it take, as an HTML block
+    // and a byte in it: an end tag is no node, so it is the end of its
+    // element, and a block that cannot be read is all of its literal.
+    let mut extent: Vec<(usize, usize)> = tree
+        .nodes
+        .iter()
+        .map(|node| {
+            let own = match &node.kind {
+                NodeKind::Element(open) => match &open.closing {
+                    Closing::End(end) => end,
+                    _ => &node.at,
+                },
+                _ => &node.at,
+            };
+            match (&node.kind, &html[node.at.piece]) {
+                (NodeKind::Source, Some(block)) => (node.at.piece, block.literal.len()),
+                _ => (own.piece, own.bytes.end),
+            }
+        })
+        .collect();
     for (at, node) in tree.nodes.iter().enumerate() {
         children[node.parent.unwrap_or(count)].push(at);
     }
     for (at, node) in tree.nodes.iter().enumerate().rev() {
         if let Some(parent) = node.parent {
+            extent[parent] = extent[parent].max(extent[at]);
             last[parent] = last[parent].max(last[at]);
             markdown_in[parent] |= markdown_in[at] || matches!(node.kind, NodeKind::Markdown);
         }
@@ -136,12 +157,14 @@ pub(in crate::typeset::parse) fn read(
         markdown,
         children,
         last,
+        extent,
         markdown_in,
     };
     let mut out = Vec::new();
     let mut run = Vec::new();
     reader.read_children(count, None, &mut out, &mut run);
     reader.flush(&mut run, None, &mut out);
+    give_anchors(&mut out);
     out
 }
 
@@ -160,6 +183,8 @@ struct Reader<'t> {
     markdown: Vec<Option<Vec<(Block, Position)>>>,
     children: Vec<Vec<usize>>,
     last: Vec<usize>,
+    /// The last byte in each node, as `read` makes it.
+    extent: Vec<(usize, usize)>,
     markdown_in: Vec<bool>,
 }
 
@@ -337,10 +362,11 @@ impl<'t> Reader<'t> {
             Closing::End(end) => end.clone(),
             _ => {
                 let last = &self.tree.nodes[self.last[node]];
-                match last.kind {
-                    NodeKind::Markdown => start.clone(),
-                    _ => last.at.clone(),
-                }
+                let (piece, byte) = match last.kind {
+                    NodeKind::Markdown => (start.piece, start.bytes.end),
+                    _ => self.extent[node],
+                };
+                return ((start.piece, start.bytes.start), (piece, byte));
             }
         };
         ((start.piece, start.bytes.start), (end.piece, end.bytes.end))
@@ -542,6 +568,7 @@ impl<'t> Reader<'t> {
         let mut run = Vec::new();
         self.read_children_but(node, skip, round, &mut blocks, &mut run);
         self.flush(&mut run, round, &mut blocks);
+        give_anchors(&mut blocks);
         blocks
     }
 
@@ -790,6 +817,103 @@ fn drop_first_newline(text: &str) -> &str {
     text.strip_prefix("\r\n")
         .or_else(|| text.strip_prefix('\n'))
         .unwrap_or(text)
+}
+
+/// The anchors that `block` is, when it is a paragraph of nothing but the
+/// places that `<a name>` and `<a id>` name and white space: it draws
+/// nothing, so it is not a block of its own.
+fn only_anchors(block: &Block) -> Option<Vec<Inline>> {
+    let Block::Paragraph(content) = block else {
+        return None;
+    };
+    let blank = |inline: &Inline| match inline {
+        Inline::Anchor(_) | Inline::SoftBreak | Inline::LineBreak => true,
+        Inline::Text(text) => text.trim_ascii().is_empty(),
+        _ => false,
+    };
+    let anchors: Vec<Inline> = (content.iter())
+        .filter(|inline| matches!(inline, Inline::Anchor(_)))
+        .cloned()
+        .collect();
+    (!anchors.is_empty() && content.iter().all(blank)).then_some(anchors)
+}
+
+/// The inlines at the start of `block`, where a place can be given to it.
+fn first_inlines(block: &mut Block) -> Option<&mut Vec<Inline>> {
+    match block {
+        Block::Paragraph(content) | Block::Heading { content, .. } => Some(content),
+        Block::Centered(inner) => inner.first_mut().and_then(first_inlines),
+        _ => None,
+    }
+}
+
+/// The inlines at the end of `block`.
+fn last_inlines(block: &mut Block) -> Option<&mut Vec<Inline>> {
+    match block {
+        Block::Paragraph(content) | Block::Heading { content, .. } => Some(content),
+        Block::Centered(inner) => inner.last_mut().and_then(last_inlines),
+        _ => None,
+    }
+}
+
+/// Gives the places of the blocks that are nothing but anchors to the block
+/// after them, which they stay in front of as jump targets, or else to the
+/// block before them. A paragraph of nothing but anchors would draw an empty
+/// paragraph, so it is not kept; but when there is no paragraph or heading in
+/// the container to give them to, it is, as it was read, so that no jump
+/// target is lost.
+fn give_anchors(blocks: &mut Vec<(Block, Position)>) {
+    if !blocks
+        .iter()
+        .any(|(block, _)| only_anchors(block).is_some())
+    {
+        return;
+    }
+    let mut out: Vec<(Block, Position)> = Vec::with_capacity(blocks.len());
+    let mut carried: Vec<(Block, Position)> = Vec::new();
+    for (mut block, position) in std::mem::take(blocks) {
+        if only_anchors(&block).is_some() {
+            carried.push((block, position));
+            continue;
+        }
+        if !carried.is_empty() {
+            match first_inlines(&mut block) {
+                Some(content) => {
+                    let before = anchors_of(&carried);
+                    carried.clear();
+                    content.splice(0..0, before);
+                }
+                // No block to give them to after them: the one before.
+                None => give_back(&mut out, &mut carried),
+            }
+        }
+        out.push((block, position));
+    }
+    give_back(&mut out, &mut carried);
+    *blocks = out;
+}
+
+/// The anchors of the blocks `carried`, which are all only anchors.
+fn anchors_of(carried: &[(Block, Position)]) -> Vec<Inline> {
+    (carried.iter())
+        .flat_map(|(block, _)| only_anchors(block).unwrap_or_default())
+        .collect()
+}
+
+/// Gives `carried` to the end of the last block of `out`, if it has one that
+/// can take them; they stay blocks of their own otherwise, after it.
+fn give_back(out: &mut Vec<(Block, Position)>, carried: &mut Vec<(Block, Position)>) {
+    if carried.is_empty() {
+        return;
+    }
+    let anchors = anchors_of(carried);
+    match out.last_mut().and_then(|(block, _)| last_inlines(block)) {
+        Some(content) => {
+            content.extend(anchors);
+            carried.clear();
+        }
+        None => out.append(carried),
+    }
 }
 
 /// The block that `make` makes of `blocks`, at `position`, with the places

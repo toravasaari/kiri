@@ -699,3 +699,48 @@ fn parse_agrees_with_a_browser_on_documents_that_need_no_repair() {
         assert!(browser::agrees(source, browser::kiri), "{source:?}");
     }
 }
+
+/// Every kind of phrase has a stack of open start tags in the inline join:
+/// `Phrase` and `Phrase::ALL` are made from one list, and `PHRASES` is the
+/// length of `ALL`, so none is missing from the count. The test checks that
+/// each is at its own place in `ALL`, and that `after`, which has an arm for
+/// every variant with no wildcard, chains through all of them from the first.
+#[test]
+fn every_phrase_has_a_place_among_the_phrases_of_the_inline_join() {
+    fn after(phrase: Phrase) -> Option<Phrase> {
+        match phrase {
+            Phrase::Kbd => Some(Phrase::Mark),
+            Phrase::Mark => Some(Phrase::Sub),
+            Phrase::Sub => Some(Phrase::Sup),
+            Phrase::Sup => Some(Phrase::B),
+            Phrase::B => Some(Phrase::Strong),
+            Phrase::Strong => Some(Phrase::I),
+            Phrase::I => Some(Phrase::Em),
+            Phrase::Em => Some(Phrase::S),
+            Phrase::S => Some(Phrase::Del),
+            Phrase::Del => Some(Phrase::Code),
+            Phrase::Code => Some(Phrase::U),
+            Phrase::U => Some(Phrase::Span),
+            Phrase::Span => Some(Phrase::Ins),
+            Phrase::Ins => Some(Phrase::Strike),
+            Phrase::Strike => Some(Phrase::Picture),
+            Phrase::Picture => Some(Phrase::A),
+            Phrase::A => None,
+        }
+    }
+    assert_eq!(Phrase::ALL.len(), inline::PHRASES);
+    for (at, phrase) in Phrase::ALL.iter().enumerate() {
+        assert_eq!(*phrase as usize, at, "{phrase:?} is out of order");
+    }
+    let mut chain = Vec::new();
+    let mut next = Phrase::ALL.first().copied();
+    while let Some(phrase) = next {
+        chain.push(phrase);
+        next = after(phrase);
+    }
+    assert_eq!(
+        chain,
+        Phrase::ALL,
+        "the chain of `after` visits every phrase"
+    );
+}

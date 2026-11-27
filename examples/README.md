@@ -180,6 +180,30 @@ the text's colour: n(n + 1) above a line, 2 below it.
 A formula in a line, such as $E = mc^2$ here, is drawn at about the size of
 the text and keeps the line one row high. Elsewhere it stays as written.
 
+## HTML in Markdown
+
+A README often opens with HTML: a logo and a row of links in the
+middle, and a `<details>` that folds away a long part. kiri reads such
+tags as GitHub shows them, drawing the head centred and the details
+open, the summary in bold after a triangle. Tags it does not read stay
+as source in a <u>muted colour</u>. What is read, and the settings for
+reading more or less of it, are in [Text](S01-text.md) and the
+[configuration file](../docs/config.md).
+
+<div align="center">
+  <img src="S06b-pattern.png" width="64" alt="a pattern">
+  <h3>A centred title</h3>
+  <a href="https://github.com/toravasaari/kiri">kiri</a> &middot;
+  <a href="https://github.com/toravasaari/kiri/issues">Issues</a>
+</div>
+
+<details>
+<summary>A summary</summary>
+
+The content is *Markdown*.
+
+</details>
+
 ## Topics
 
 - [Text](S01-text.md): headings, emphasis, links, emoji, HTML tags

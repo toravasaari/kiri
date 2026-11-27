@@ -151,15 +151,6 @@ tags of a `<code>` with other tags inside, as in <code>a <b>b</b></code>, and
 `<u>`, which GitHub does not show: <u>underlined</u>. With `html = "all"` in
 the `[markdown]` table of the configuration file, the `<u>` is underlined.
 
-### Entities
-
-Named entities in a one-line `<details>` show as their characters. The
-summary reads "Fish & chips — 5 €", and the line after it "One line — © …
-&mdash; &Mdash;": `&amp;mdash;` shows as written, and so does an unknown
-or wrongly cased name such as `&Mdash;`.
-
-<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
-
 ### HTML headings
 
 A block of one `<h1>` to `<h6>` is drawn as the Markdown heading of that
@@ -180,9 +171,8 @@ A title and a row of links in a `<div align="center">`, `<p align="center">`
 or `<center>` are drawn in the middle of the line, as a README shows its head.
 A list, a quote or a table in such a wrapper is drawn where it is, not
 centred. GitHub does not show `<center>`, so at the default level its two
-tags show in the muted colour and what is in it is not centred; the
-`<center>` examples below are centred with `html = "all"` in the `[markdown]`
-table of the configuration file.
+tags show in the muted colour and what is in it is not centred; with
+`html = "all"` in the `[markdown]` table of the configuration file it is.
 
 <div align="center">
   <h3>A centred title</h3>
@@ -199,10 +189,10 @@ A line in a wrapper set apart by blank lines is centred, and its list is not:
 
 </div>
 
-A Markdown paragraph ends an open `<p>`, as in a browser. So a `<p>` with
-`align="center"` round blank lines and Markdown centres nothing, and its two
-tags show in the muted colour. In a `<div align="center">`, as above, the same
-lines are centred. Nothing below is centred:
+A Markdown paragraph closes an open `<p>` too. In the example below the blank
+line closes the `<p align="center">` before the Markdown line, so the later
+`</p>` closes nothing: both tags show in the muted colour, and nothing is
+centred. In a `<div align="center">`, as above, the same lines are centred.
 
 <p align="center">
 
@@ -210,50 +200,13 @@ A line of Markdown, not centred.
 
 </p>
 
-A `<p align="center">` whose `</p>` is left out ends where a browser ends
-it, at the next `<p>`, `<div>`, `<center>` or `<details>`, and what it
-holds so far is centred. Both lines below are centred:
+A `<p>` that has no end tag is closed by the next `<p>`, `<div>`, `<center>`
+or `<details>`, as in a browser, and what it holds is centred. In the example
+below there is no `</p>` after the first line, but the next
+`<p align="center">` closes it, so both lines are centred:
 
 <p align="center">A centred line, its end tag left out.
 <p align="center">The second line.
-
-A `<details>` ends such a `<p>` as well: the line below is centred, and
-the details after it is drawn at the left.
-
-<p align="center">A centred line before a details.
-<details>
-<summary>Not centred</summary>
-
-The details and what it holds are not centred.
-
-</details>
-
-A `<center>` in a `<center>`, with text beside its start tag, is read as a
-browser reads it: with `html = "all"` all three lines below are centred.
-
-<center>
-
-<center>Text beside the tag
-
-A centred line inside both.
-
-</center>
-
-A centred line after the inner end tag.
-
-</center>
-
-A centred element right after an end tag in the same HTML block, or in a
-`<details>` of one line, is centred as it is on a line of its own:
-
-<center>
-
-A centred line.
-
-</center>
-<p align="center">The next centred line, right after the end tag.</p>
-
-<details><summary>A details of one line</summary><p align="center">Centred inside it.</p></details>
 
 ### Plain wrappers and broken tags
 
@@ -297,6 +250,13 @@ blocks is a muted line of its own:
 With `html_tags = "hide"` in the `[markdown]` table of the configuration
 file the tags are left out, and so is the muted line above. Source that
 kiri shows as written, such as a `<table>`, is never left out.
+
+An anchor line between two paragraphs adds no blank row, and [a link to
+it](#here) still goes to the paragraph after it:
+
+<a name="here"></a>
+
+The paragraph after the anchor line.
 
 ### Sub and sup
 

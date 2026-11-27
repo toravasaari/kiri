@@ -1365,7 +1365,11 @@ fn every_block_of_a_fixture_or_an_example_has_its_place_on_its_source() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#131 (paragraph)",
+        "S01-text.md#87 (paragraph)",
+        "the anchor line before it was given to it, and its bytes do not hold that line",
+    ),
+    (
+        "S01-text.md#113 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (
@@ -1659,4 +1663,32 @@ fn an_empty_link_of_html_stays_its_tags_and_a_later_end_tag_does_not_end_it() {
         matches!(&kept[3], Inline::Link { url, .. } if url == "y"),
         "{kept:?}"
     );
+}
+
+/// Whether a paragraph of `source`, at the top or in a centred block, is a
+/// lone image, as a backend that draws images asks for it.
+fn lone_image_of(source: &str) -> bool {
+    fn find(block: &Block) -> bool {
+        match block {
+            Block::Paragraph(content) => Inline::lone_image(content).is_some(),
+            Block::Centered(inner) => inner.iter().any(find),
+            _ => false,
+        }
+    }
+    parse(source).blocks.iter().any(find)
+}
+
+#[test]
+fn an_image_stays_a_lone_image_with_anchors_before_it_or_after_it() {
+    // An anchor before it is skipped, as before.
+    assert!(lone_image_of("<a name=\"x\"></a>\n\n![logo](a.png)\n"));
+    // After it, an anchor line that was given to the paragraph is skipped too.
+    assert!(lone_image_of(
+        "![logo](a.png)\n\n<a name=\"x\"></a>\n\n- item\n"
+    ));
+    assert!(lone_image_of(
+        "<p align=\"center\"><img src=\"a.png\"></p>\n\n<a name=\"x\"></a>\n"
+    ));
+    // On the same line: intended, as the anchor before the image is.
+    assert!(lone_image_of("![logo](a.png)<a name=\"x\"></a>\n"));
 }

@@ -1730,9 +1730,8 @@ pub const ROWS: &[Row] = &[
         name: "an anchor line before a centred p ending in a character of more bytes",
         source: "<a name=\"x\"></a>\n<p align=\"center\">\u{e9}\n",
         blocks: r#"
-            p "Anchor(\"x\")" @1=0..16
             centred @2=17..37
-              p "é" @2~17..37
+              p "Anchor(\"x\")é" @2~17..37
         "#,
     },
     Row {
@@ -2278,6 +2277,199 @@ pub const ROWS: &[Row] = &[
             p "A [u]b[/u] c" @1=0..19
         "#,
     },
+    // A `<pre>` or `<textarea>` that a blank line cuts: its end tag is in
+    // Markdown, and the HTML after it is read as before.
+    Row {
+        name: "a pre cut by a blank line in a details does not turn the rest into text",
+        source: "<details>\n<summary>Log</summary>\n<pre>\nline 1\n\nline 2\n</pre>\n</details>\n\n<div align=\"center\">footer</div>\n\n<h2 align=\"center\">Next</h2>\n",
+        blocks: r#"
+            details "Log" @1=0..71
+              html "<pre>" @3~0..45
+              p "line 1" @4~0..45
+              p "line 2 </pre>" @6=47..60
+            centred @10=73..105
+              p "footer" @10~73..105
+            centred @12=107..135
+              h2 "Next" @12~107..135
+        "#,
+    },
+    Row {
+        name: "a pre cut by a blank line in a centred div does not turn the rest into text",
+        source: "<div align=\"center\">\n<pre>\nfoo\n\nbar\n</pre>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            centred @1=0..49
+              html "<pre>" @2~0..30
+              p "foo" @3~0..30
+              p "bar </pre>" @5=32..42
+            centred @9=51..78
+              p "after" @9~51..78
+        "#,
+    },
+    Row {
+        name: "a textarea never ended in a div is an unpaired tag",
+        source: "<div>\n<textarea>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            html "<div>" @1~0..23
+            html "<textarea>" @2~0..23
+            p "</div>" @3~0..23
+            centred @5=25..52
+              p "after" @5~25..52
+        "#,
+    },
+    // An element whose end is implied is source as far as its last byte, not
+    // as far as the last node: the end tags and an HTML block that cannot be
+    // read are in it, and nothing is lost.
+    Row {
+        name: "a li with a div after a blank line keeps all the text of the div",
+        source: "<li>\n\n<div>x < y SECRET</div>\n",
+        blocks: r#"
+            html "<li>\n" @1=0..4
+            html "<div>x < y SECRET</div>\n" @3=6..29
+        "#,
+    },
+    Row {
+        name: "a div of li and ul keeps the end tags of the list",
+        source: "<div><li>a<ul><li>b</li></ul></div>\n",
+        blocks: r#"
+            html "<li>a<ul><li>b</li></ul>" @1~0..35
+        "#,
+    },
+    Row {
+        name: "a div of dd and a table keeps the end tag of the table",
+        source: "<div>\n<dd>a<table><tr><td>b</td></tr></table></div>\n",
+        blocks: r#"
+            html "<dd>a<table><tr><td>b</td></tr></table>" @2~0..51
+        "#,
+    },
+    // A block of nothing but anchors is not a block: its places go to the
+    // next block (the one before at the end), or nowhere.
+    Row {
+        name: "a block of an anchor between two paragraphs is no block",
+        source: "a\n\n<a name=\"top\"></a>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            p "Anchor(\"top\")b" @5=23..24
+        "#,
+    },
+    Row {
+        name: "an anchor line before a heading is given to the heading",
+        source: "<a name=\"top\"></a>\n# H\n\nb\n",
+        blocks: r#"
+            h1 "Anchor(\"top\")H" @2=19..22
+            p "b" @4=24..25
+        "#,
+    },
+    Row {
+        name: "an anchor at the end of a document goes to the block before",
+        source: "a\n\n<a name=\"end\"></a>\n",
+        blocks: r#"
+            p "aAnchor(\"end\")" @1=0..1
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a centred div is kept",
+        source: "a\n\n<div align=\"center\"><a name=\"x\"></a></div>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            centred @3=3..45
+              p "Anchor(\"x\")" @3~3..45
+            p "b" @5=47..48
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a centred p is kept",
+        source: "a\n\n<p align=\"center\"><a name=\"x\"></a></p>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            centred @3=3..41
+              p "Anchor(\"x\")" @3~3..41
+            p "b" @5=43..44
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a centred div with blank lines is kept",
+        source: "a\n\n<div align=\"center\">\n\n<a name=\"x\"></a>\n\n</div>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            centred @3=3..49
+              p "Anchor(\"x\")" @5=25..41
+            p "b" @9=51..52
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a quote is kept",
+        source: "a\n\n> <a name=\"x\"></a>\n\nb\n",
+        blocks: r#"
+            p "a" @1=0..1
+            quote @3=3..21
+              p "Anchor(\"x\")" @3=5..21
+            p "b" @5=23..24
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a list item is kept",
+        source: "- a\n- <a name=\"x\"></a>\n- b\n",
+        blocks: r#"
+            list @1=0..26
+              item
+                p "a" @1=2..3
+              item
+                p "Anchor(\"x\")" @2=6..22
+              item
+                p "b" @3=25..26
+        "#,
+    },
+    Row {
+        name: "an anchor alone in a details is kept",
+        source: "<details>\n<summary>S</summary>\n\n<a name=\"x\"></a>\n\n</details>\n",
+        blocks: r#"
+            details "S" @1=0..60
+              p "Anchor(\"x\")" @4=32..48
+        "#,
+    },
+    Row {
+        name: "an anchor before a code block at the start is kept",
+        source: "<a name=\"x\"></a>\n\n```\ncode\n```\n",
+        blocks: r#"
+            p "Anchor(\"x\")" @1=0..16
+            code "code\n" @3=18..30
+        "#,
+    },
+    Row {
+        name: "an anchor after a table at the end is kept",
+        source: "| t |\n|---|\n| c |\n\n<a name=\"x\"></a>\n",
+        blocks: r#"
+            Table(Table { alignments: [Left], cells: Parsed { header: [[Text("t")]], rows: [[[Text("c")]]] } }) @1=0..17
+            p "Anchor(\"x\")" @5=19..35
+        "#,
+    },
+    Row {
+        name: "a document of only anchors keeps them",
+        source: "<a name=\"x\"></a>\n\n<a id=\"y\"></a>\n",
+        blocks: r#"
+            p "Anchor(\"x\")" @1=0..16
+            p "Anchor(\"y\")" @3=18..32
+        "#,
+    },
+    // Cases that `examples/S01-text.md` showed and no longer does.
+    Row {
+        name: "a one-line details reads the entities of its summary and its text",
+        source: "<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>\n",
+        blocks: r#"
+            details "Fish & chips — 5\u{a0}€" @1=0..128
+              p "One line — © … &mdash; &Mdash;" @1~0..128
+        "#,
+    },
+    Row {
+        name: "a details ends a centred p whose end tag is left out",
+        source: "<p align=\"center\">A centred line before a details.\n<details>\n<summary>Not centred</summary>\n\nThe details and what it holds are not centred.\n\n</details>\n",
+        blocks: r#"
+            centred @1=0..51
+              p "A centred line before a details." @1~0..51
+            details "Not centred" @2=51..151
+              p "The details and what it holds are not centred." @5=93..139
+        "#,
+    },
 ];
 
 /// What GitHub's level reads differently from the level "all": the tags
@@ -2396,6 +2588,152 @@ pub const HIDE_ROWS: &[Row] = &[
         source: "<abbr><abbr>\n",
         blocks: "",
     },
+    // A block is left out when nothing in it draws anything: line breaks,
+    // and emphasis or a link with nothing in it, are not drawing.
+    Row {
+        name: "a paragraph of hidden tags and a line break is left out",
+        source: "<abbr></abbr>\n<abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @4=29..34
+        "#,
+    },
+    Row {
+        name: "a paragraph of emphasis with nothing in it is left out",
+        source: "**<abbr></abbr>**\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=19..24
+        "#,
+    },
+    Row {
+        name: "a paragraph of a link with nothing in it is left out",
+        source: "[<abbr></abbr>](u)\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=20..25
+        "#,
+    },
+    Row {
+        name: "a paragraph of hidden tags and a space is left out",
+        source: "<abbr></abbr> <abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=29..34
+        "#,
+    },
+    Row {
+        name: "a paragraph of empty emphasis, a space and hidden tags is left out",
+        source: "*<abbr></abbr>* <abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=31..36
+        "#,
+    },
+    // Tags that are read are not hidden, so a block that held only them, and
+    // nothing with no effect, was empty as written and stays.
+    Row {
+        name: "an empty b stays at hide, which hides nothing",
+        source: "<b></b>\n\nAfter\n",
+        blocks: r#"
+            p "****" @1=0..7
+            p "After" @3=9..14
+        "#,
+    },
+    Row {
+        name: "bold round an empty i stays at hide",
+        source: "**<i></i>**\n\nAfter\n",
+        blocks: r#"
+            p "******" @1=0..11
+            p "After" @3=13..18
+        "#,
+    },
+    Row {
+        name: "an empty kbd stays at hide",
+        source: "<kbd></kbd>\n\nAfter\n",
+        blocks: r#"
+            p "<kbd></kbd>" @1=0..11
+            p "After" @3=13..18
+        "#,
+    },
+    Row {
+        name: "an empty sup stays at hide",
+        source: "<sup></sup>\n\nAfter\n",
+        blocks: r#"
+            p "Superscript([])" @1=0..11
+            p "After" @3=13..18
+        "#,
+    },
+    Row {
+        name: "a span of spaces stays at hide, which hides nothing",
+        source: "<span>  </span>\n\nAfter\n",
+        blocks: r#"
+            p "  " @1=0..15
+            p "After" @3=17..22
+        "#,
+    },
+    // A non-breaking space draws: it is the way to write a blank line, so
+    // it is not nothing, hidden tags or not.
+    Row {
+        name: "a span of a non-breaking space stays at hide",
+        source: "<span>&nbsp;</span>\n\nAfter\n",
+        blocks: r#"
+            p "\u{a0}" @1=0..19
+            p "After" @3=21..26
+        "#,
+    },
+    Row {
+        name: "bold of a non-breaking space stays at hide",
+        source: "<b>&nbsp;</b>\n\nAfter\n",
+        blocks: r#"
+            p "**\u{a0}**" @1=0..13
+            p "After" @3=15..20
+        "#,
+    },
+    Row {
+        name: "hidden tags and a non-breaking space stay at hide",
+        source: "<abbr></abbr>&nbsp;\n\nAfter\n",
+        blocks: r#"
+            p "\u{a0}" @1=0..19
+            p "After" @3=21..26
+        "#,
+    },
+    // What was empty as written stays, with no tag to hide: an empty link.
+    Row {
+        name: "an empty link written in Markdown stays at hide",
+        source: "[](u)\n",
+        blocks: r#"
+            p "[](u)" @1=0..5
+        "#,
+    },
+    Row {
+        name: "bold round an empty link written in Markdown stays at hide",
+        source: "**[](u)**\n",
+        blocks: r#"
+            p "**[](u)**" @1=0..9
+        "#,
+    },
+    Row {
+        name: "an empty link in a quote stays at hide",
+        source: "> [](u)\n",
+        blocks: r#"
+            quote @1=0..7
+              p "[](u)" @1=2..7
+        "#,
+    },
+    Row {
+        name: "an empty link in a heading stays at hide",
+        source: "# [](u)\n",
+        blocks: r#"
+            h1 "[](u)" @1=0..7
+        "#,
+    },
+    Row {
+        name: "an empty link in a list item stays at hide",
+        source: "- [](u)\n- b\n",
+        blocks: r#"
+            list @1=0..11
+              item
+                p "[](u)" @1=2..7
+              item
+                p "b" @2=10..11
+        "#,
+    },
     // What hiding empties goes with it, if it held something: a heading, a
     // list item, a quote. A cell stays a cell, and what was empty as written
     // stays.
@@ -2446,6 +2784,13 @@ pub const HIDE_ROWS: &[Row] = &[
         source: "> <abbr>\n\nAfter\n",
         blocks: r#"
             p "After" @3=10..15
+        "#,
+    },
+    Row {
+        name: "an alert of nothing but hidden tags is left out with its title",
+        source: "> [!NOTE]\n> <abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @4=27..32
         "#,
     },
     Row {
@@ -2503,6 +2848,41 @@ pub const HIDE_ROWS: &[Row] = &[
         source: "<!-- note -->\n",
         blocks: r#"
             html "<!-- note -->\n" @1=0..13
+        "#,
+    },
+    // A `<pre>` or `<textarea>` that a blank line cuts: its end tag is in
+    // Markdown, and the HTML after it is read as before.
+    Row {
+        name: "a pre cut by a blank line in a details does not turn the rest into text at hide",
+        source: "<details>\n<summary>Log</summary>\n<pre>\nline 1\n\nline 2\n</pre>\n</details>\n\n<div align=\"center\">footer</div>\n\n<h2 align=\"center\">Next</h2>\n",
+        blocks: r#"
+            details "Log" @1=0..71
+              p "line 1" @4~0..45
+              p "line 2 " @6=47..60
+            centred @10=73..105
+              p "footer" @10~73..105
+            centred @12=107..135
+              h2 "Next" @12~107..135
+        "#,
+    },
+    Row {
+        name: "a pre cut by a blank line in a centred div does not turn the rest into text at hide",
+        source: "<div align=\"center\">\n<pre>\nfoo\n\nbar\n</pre>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            centred @1=0..49
+              p "foo" @3~0..30
+              p "bar " @5=32..42
+            centred @9=51..78
+              p "after" @9~51..78
+        "#,
+    },
+    Row {
+        name: "a textarea never ended in a div is an unpaired tag at hide",
+        source: "<div>\n<textarea>\n</div>\n\n<p align=\"center\">after</p>\n",
+        blocks: r#"
+            p "</div>" @3~0..23
+            centred @5=25..52
+              p "after" @5~25..52
         "#,
     },
 ];

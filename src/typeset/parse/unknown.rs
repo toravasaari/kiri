@@ -16,6 +16,9 @@ pub(super) struct Unknown {
     pub(super) html: HtmlLevel,
     /// What becomes of the tags that have no effect.
     pub(super) html_tags: HtmlTags,
+    /// Whether hiding the tags has left one out of the inlines read since it
+    /// was last cleared: a block that hiding empties is one that lost a tag.
+    pub(super) hid: bool,
 }
 
 impl Unknown {
@@ -26,6 +29,7 @@ impl Unknown {
             found: Vec::new(),
             html,
             html_tags,
+            hid: false,
         }
     }
 

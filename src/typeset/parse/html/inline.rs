@@ -14,8 +14,8 @@ use crate::typeset::model::{Image, Inline};
 /// tag, so that the elements made of them are nested to that depth at most.
 const NESTING: usize = 100;
 
-/// How many kinds of phrase there are: `Phrase::A` is the last of them.
-const PHRASES: usize = Phrase::A as usize + 1;
+/// How many kinds of phrase there are: the length of `Phrase::ALL`.
+pub(super) const PHRASES: usize = Phrase::ALL.len();
 
 /// What one tag of inline HTML is, as it is read once.
 pub(super) enum Shape {
@@ -153,11 +153,19 @@ impl Joined {
     /// The inlines as [`Joined::into_inlines`] gives them. Where a tag that
     /// is left out sat between two spaces, they are one when `collapse`.
     fn finish(self, collapse: bool) -> Vec<Inline> {
+        self.finish_and_report(collapse).0
+    }
+
+    /// The inlines as [`Joined::into_inlines`] gives them, and whether hiding
+    /// the tags left out a tag or a comment.
+    pub fn into_inlines_and_hid(self) -> (Vec<Inline>, bool) {
+        self.finish_and_report(false)
+    }
+
+    fn finish_and_report(self, collapse: bool) -> (Vec<Inline>, bool) {
         let mut inlines = self.inlines;
-        if self.tags == HtmlTags::Hide {
-            hide_tags(&mut inlines, collapse);
-        }
-        inlines
+        let hid = self.tags == HtmlTags::Hide && hide_tags(&mut inlines, collapse);
+        (inlines, hid)
     }
 
     fn push_tag(&mut self, tag: String, shape: Shape) {
@@ -269,13 +277,17 @@ pub(super) fn is_tag(html: &str) -> bool {
 }
 
 /// Leaves the tags and comments out of `inlines` and of what is in them, and joins the
-/// text that is left side by side. Where two spaces meet at the join, one is
+/// text that is left side by side. It tells whether it left one out. Where two spaces meet at the join, one is
 /// left when `collapse`, as a browser shows them.
-fn hide_tags(inlines: &mut Vec<Inline>, collapse: bool) {
+fn hide_tags(inlines: &mut Vec<Inline>, collapse: bool) -> bool {
+    let mut hid = false;
     let before = std::mem::take(inlines);
     for mut inline in before {
         match &mut inline {
-            Inline::Html(html) if is_tag(html) => continue,
+            Inline::Html(html) if is_tag(html) => {
+                hid = true;
+                continue;
+            }
             Inline::Text(text) => {
                 if let Some(Inline::Text(last)) = inlines.last_mut() {
                     let trimmed = match collapse && last.ends_with(' ') {
@@ -294,11 +306,12 @@ fn hide_tags(inlines: &mut Vec<Inline>, collapse: bool) {
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
             | Inline::Underline(inner)
-            | Inline::Link { content: inner, .. } => hide_tags(inner, collapse),
+            | Inline::Link { content: inner, .. } => hid |= hide_tags(inner, collapse),
             _ => {}
         }
         inlines.push(inline);
     }
+    hid
 }
 
 /// The text of `inlines` when they are only non-empty text.

@@ -14,6 +14,10 @@ kiri stays at 0.x until its command line settles.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
   the pager as you scroll.
+- Two settings for the HTML in Markdown: which of it is read, GitHub's by
+  default or all of it, and whether tags with no effect are shown muted or
+  hidden.
+- `<span>`, `<ins>` and `<strike>` in text.
 
 ### Changed
 
@@ -21,6 +25,17 @@ kiri stays at 0.x until its command line settles.
 - Horizontal rules are narrowed to the width of the text.
 - The header above each of several files spans the whole window and has the
   status line's colour; the theme key `bar_background` sets both.
+- A plain `<div>` or `<p>` is read as its text instead of shown as source.
+- A `<p align="center">` around Markdown is not centred, as on GitHub; a
+  `<div align="center">` still is.
+- `<center>` is read only when all of the HTML is read.
+- A `<details>` or heading that is never closed shows its tags muted, and
+  the rest is read.
+- Centred HTML that blank lines cut apart is read whole, as a browser reads it.
+
+### Fixed
+
+- Nested or stray tags in a paragraph no longer crash kiri or slow it down.
 
 ## [0.3.1] - 2026-11-23
 
