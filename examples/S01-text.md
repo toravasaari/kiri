@@ -298,6 +298,13 @@ With `html_tags = "hide"` in the `[markdown]` table of the configuration
 file the tags are left out, and so is the muted line above. Source that
 kiri shows as written, such as a `<table>`, is never left out.
 
+An anchor line between two paragraphs adds no blank row, and [a link to
+it](#here) still goes to the paragraph after it:
+
+<a name="here"></a>
+
+The paragraph after the anchor line.
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>

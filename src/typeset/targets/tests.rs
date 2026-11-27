@@ -596,3 +596,10 @@ fn an_anchor_of_html_that_its_end_tag_closes_is_a_named_place_and_no_tags() {
     };
     assert!(matches!(content[0], Inline::Html(_)), "{content:?}");
 }
+
+#[test]
+fn an_anchor_line_between_two_paragraphs_is_a_place_in_the_paragraph_after_it() {
+    let found = of("a\n\n<a name=\"here\"></a>\n\nb [go](#here)\n");
+    let here = found.named(0, "here").expect("the anchor is a place");
+    assert_eq!(here.range.start.path, [1]);
+}
