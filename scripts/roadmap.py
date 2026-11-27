@@ -6,7 +6,9 @@ the whole file:
     python3 scripts/roadmap.py        (or `make roadmap-open`)
 
 A part is a heading. It is done when its title ends with "(done)" or
-"(fixed)", and so is every part under it. Its own tests:
+"(fixed)", or with them after a comma, as in "(security, fixed)"; a part
+done only in some places, as "(done for xterm and foot)", is open. A done
+part is listed only above an open part under it. Its own tests:
 `python3 scripts/test_roadmap.py`.
 """
 
@@ -15,29 +17,41 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HEADING = re.compile(r"(#{1,6})\s+(.*\S)")
-DONE = re.compile(r"\((done|fixed)\)$")
+HEADING = re.compile(r"(#{1,6})\s+(.*\S)\s*")
+DONE = re.compile(r"\((?:[^()]*,\s*)?(done|fixed)\)$", re.IGNORECASE)
+FENCE = re.compile(r"\s*(```|~~~)")
 
 
 def open_parts(text):
-    """(line, level, title) of each heading that is not done and is under no
-    done heading, in the order of the file. Fenced code is skipped."""
+    """(line, level, title) of each heading that is not done, in the order of
+    the file, each after the headings above it that it sits under, done or
+    not, so that it is read in its place. Fenced code is skipped."""
     parts = []
-    done_level = None
-    fenced = False
+    above = []  # (line, level, title, listed) of the headings it sits under
+    fence = None
     for number, line in enumerate(text.splitlines(), start=1):
-        if line.startswith("```"):
-            fenced = not fenced
+        opening = FENCE.match(line)
+        if opening:
+            if fence is None:
+                fence = opening.group(1)
+            elif opening.group(1) == fence:
+                fence = None
             continue
-        match = None if fenced else HEADING.fullmatch(line)
+        match = None if fence else HEADING.fullmatch(line)
         if not match:
             continue
         level, title = len(match.group(1)), match.group(2)
-        if done_level is not None and level > done_level:
-            continue
-        done_level = level if DONE.search(title) else None
-        if done_level is None:
+        while above and above[-1][1] >= level:
+            above.pop()
+        if not DONE.search(title):
+            for index, (line_above, level_above, title_above, listed) in enumerate(above):
+                if not listed:
+                    parts.append((line_above, level_above, title_above))
+                    above[index] = (line_above, level_above, title_above, True)
             parts.append((number, level, title))
+            above.append((number, level, title, True))
+        else:
+            above.append((number, level, title, False))
     return parts
 
 
