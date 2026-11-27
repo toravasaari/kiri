@@ -385,7 +385,8 @@ impl Parts {
     /// What is at the cell `column` of row `row` of the page, in the link
     /// whose pieces cover the larger part of the cell, the leftmost when
     /// they cover as much: a link narrower than a cell is there wherever
-    /// in the cell it is. For a cell in a band, `offset` is how far the
+    /// in the cell it is, and one whose line is not on the row's middle is
+    /// not there. For a cell in a band, `offset` is how far the
     /// band is scrolled. The place is the middle of what the link covers
     /// of the cell. `None` when no link is over the cell.
     pub fn link_in_cell(&self, column: u16, row: u16, offset: u32) -> Option<Found> {
@@ -406,33 +407,34 @@ impl Parts {
             ),
             None => (None, &self.page.items, (left, top)),
         };
-        let (right, bottom) = (left + width, top + height);
-        let mut best: Option<(f32, f32, (f32, f32))> = None;
+        let (right, middle) = (left + width, top + height / 2.0);
+        // A link is over the cell by its line covering the row's middle, as
+        // `row_links` has it, and by the width of the cell that its text is
+        // over: the cover.
+        let mut best: Option<(f32, f32, f32)> = None;
         for link in self.page.links().iter().filter(|link| link.band == number) {
             let mut cover = 0.0;
             let mut leftmost = f32::MAX;
-            let mut biggest = (0.0, (0.0, 0.0));
+            let mut widest = (0.0, 0.0);
             for piece in &link.pieces {
-                let (from_x, to_x) = (piece.x.max(left), (piece.x + piece.width).min(right));
-                let (from_y, to_y) = (piece.y.max(top), (piece.y + piece.height).min(bottom));
-                if from_x >= to_x || from_y >= to_y {
+                let (from, to) = (piece.x.max(left), (piece.x + piece.width).min(right));
+                if from >= to || !(piece.y..piece.y + piece.height).contains(&middle) {
                     continue;
                 }
-                let area = (to_x - from_x) * (to_y - from_y);
-                cover += area;
+                cover += to - from;
                 leftmost = leftmost.min(piece.x);
-                if area > biggest.0 {
-                    biggest = (area, ((from_x + to_x) / 2.0, (from_y + to_y) / 2.0));
+                if to - from > widest.0 {
+                    widest = (to - from, (from + to) / 2.0);
                 }
             }
             let better = best
                 .is_none_or(|(most, first, _)| cover > most || (cover == most && leftmost < first));
             if cover > 0.0 && better {
-                best = Some((cover, leftmost, biggest.1));
+                best = Some((cover, leftmost, widest.1));
             }
         }
-        let (_, _, (x, y)) = best?;
-        self.found_in(items, x, y)
+        let (_, _, x) = best?;
+        self.found_in(items, x, middle)
     }
 
     /// What is at the point (`x`, `y`) of the page, in pixels from its top
