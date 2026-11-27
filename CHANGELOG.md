@@ -10,9 +10,8 @@ kiri stays at 0.x until its command line settles.
 ### Added
 
 - The HTML heads of README files: centred titles, logos and link rows, `<a>`
-  links, and `<u>`, `<span>`, `<ins>` and `<strike>` in text. Two settings choose
-  how much HTML is read, GitHub's or all of it, and whether tags with no
-  effect are shown muted or hidden.
+  links, and `<u>`, `<span>`, `<ins>` and `<strike>` in text. Two settings
+  choose how much HTML is read and whether unread tags show.
 - Footnotes, shown at the end of the document with links in both directions.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
@@ -25,10 +24,7 @@ kiri stays at 0.x until its command line settles.
 - The header above each of several files spans the whole window and has the
   status line's colour; the theme key `bar_background` sets both.
 - HTML in Markdown is read more as a browser reads it: a plain `<div>` or `<p>`
-  is its text instead of source, centred HTML that blank lines cut apart is
-  read whole, and a `<details>` or heading that is never closed shows its tags
-  muted. A `<p align="center">` around Markdown is not centred, as on GitHub,
-  and `<center>` is read only when all of the HTML is read.
+  is its text, not source, and a heading inside a `<summary>` is read.
 
 ### Fixed
 
