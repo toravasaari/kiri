@@ -51,6 +51,12 @@ module-map:
 module-map-check:
 	python3 scripts/module-map.py --check
 
+# The parts of docs/roadmap.md that are not done, with their line numbers.
+# The script's own tests: `python3 scripts/test_roadmap.py`.
+.PHONY: roadmap-open
+roadmap-open:
+	@python3 scripts/roadmap.py
+
 # Like `test`, also without the default features, so code only that
 # build compiles is linted too.
 .PHONY: clippy
