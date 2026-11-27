@@ -76,13 +76,19 @@ fn is_centred(element: &ElementRef<'_>) -> bool {
     (element.value().attr("align")).is_some_and(|align| align.trim().eq_ignore_ascii_case("center"))
 }
 
-/// The text of `element`, with a space for each `<br>`.
+/// The text of `element`, with a space for each `<br>` and one at each end
+/// of a heading, which a browser draws in a box of its own.
 fn text_of(element: ElementRef<'_>) -> String {
     let mut text = String::new();
     for child in element.children() {
         if let Some(inner) = ElementRef::wrap(child) {
             match inner.value().name() {
                 "br" => text.push(' '),
+                "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                    text.push(' ');
+                    text.push_str(&text_of(inner));
+                    text.push(' ');
+                }
                 _ => text.push_str(&text_of(inner)),
             }
         } else if let Some(part) = child.value().as_text() {

@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 55] = [
+const PIECES: [&str; 57] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -73,6 +73,10 @@ const PIECES: [&str; 55] = [
     "<dd>",
     "</dd>",
     "<div>x < y MARK</div>",
+    // A summary that holds a whole heading, which is read as the summary,
+    // alone and beside text.
+    "<summary><h1 align=\"center\">MARK</h1></summary>",
+    "<summary>MARK<h1>MARK <b>MARK</b></h1>MARK</summary>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -466,9 +470,26 @@ enum Node {
         inner: Vec<Node>,
     },
     Details {
-        summary: Option<Run>,
+        summary: Option<Vec<Part>>,
         inner: Vec<Node>,
     },
+}
+
+/// A part of a summary: text, or a whole heading, which a summary reads as
+/// its text.
+#[derive(Debug, Clone)]
+enum Part {
+    Text(Run),
+    Heading { level: u8, centred: bool, text: Run },
+}
+
+fn summary_parts() -> impl Strategy<Value = Vec<Part>> {
+    let part = prop_oneof![
+        2 => run().prop_map(Part::Text),
+        2 => (1u8..7, any::<bool>(), run())
+            .prop_map(|(level, centred, text)| Part::Heading { level, centred, text }),
+    ];
+    proptest::collection::vec(part, 1..4)
 }
 
 fn run() -> impl Strategy<Value = Run> {
@@ -491,7 +512,7 @@ fn nodes() -> impl Strategy<Value = Vec<Node>> {
             3 => (0u8..4, any::<bool>(), inner.clone()).prop_map(
                 |(kind, centred, inner)| Node::Wrap { center: kind == 0, centred, inner }
             ),
-            1 => (proptest::option::weighted(0.66, run()), inner)
+            1 => (proptest::option::weighted(0.66, summary_parts()), inner)
                 .prop_map(|(summary, inner)| Node::Details { summary, inner }),
         ]
     });
@@ -605,7 +626,22 @@ impl Writer<'_> {
                 self.tag("<details>");
                 if let Some(summary) = summary {
                     self.tag("<summary>");
-                    self.tight_text(summary);
+                    self.tight = true;
+                    for part in summary {
+                        match part {
+                            Part::Text(run) => self.text(run),
+                            Part::Heading {
+                                level,
+                                centred,
+                                text,
+                            } => {
+                                self.separate(false);
+                                self.out.push_str(&format!("<h{level}{}>", align(*centred)));
+                                self.text(text);
+                                self.out.push_str(&format!("</h{level}>"));
+                            }
+                        }
+                    }
                     self.tag("</summary>");
                     self.tight = false;
                 }
@@ -643,7 +679,8 @@ proptest! {
     /// have none).
     ///
     /// The documents have headings of levels 1 to 6, `<p>`, `<div>`,
-    /// `<center>`, `<details>` and `<summary>`, and Markdown paragraphs and
+    /// `<center>`, `<details>` and `<summary>` (that may hold text and whole
+    /// headings), and Markdown paragraphs and
     /// `##` headings. They have no `<a>`, no images and no inline element
     /// but `<b>` and `<br>`; the rows of `rows.rs` cover those.
     ///
