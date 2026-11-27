@@ -43,7 +43,7 @@ use crate::typeset::position::Pos;
 use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::{self, Parts};
 use crate::typeset::reading::page::ItemRef;
-use crate::typeset::reading::places::Centre;
+use crate::typeset::reading::places::{Centre, Found};
 use crate::typeset::style::{Line, Measured, Origin, Span};
 use crate::typeset::wrap;
 
@@ -876,6 +876,38 @@ impl Map {
         })
     }
 
+    /// The place of the link a click on column `column` of line `line`
+    /// follows: the one whose text is over the cell, wherever in it, and
+    /// not only the one at the cell's middle.
+    pub fn link_hit(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
+        let laid = lines.get(line)?;
+        let columns = column.checked_sub(wrap::width(&laid.lead))?;
+        let parts = laid.image.as_ref().and_then(|image| image.page.as_ref());
+        let (Some(image), Some(parts)) = (laid.image.as_ref(), parts) else {
+            return self.hit(lines, line, column);
+        };
+        let page = self.pages.iter().find(|page| page.rows.contains(&line))?;
+        let offset = match image.placement.key {
+            ImageKey::Band { offset, .. } => offset,
+            _ => 0,
+        };
+        let row = u16::try_from(line - page.rows.start).ok()?;
+        let found = parts.link_in_cell(u16::try_from(columns).ok()?, row, offset);
+        match found {
+            Some(found) => Some(self.found_pos(found)),
+            None => self.hit(lines, line, column),
+        }
+    }
+
+    /// The place of what a page found.
+    fn found_pos(&self, found: Found) -> Pos {
+        let info = self.blocks.get(found.block);
+        match found.text {
+            Some((text, byte)) => Pos::text(info.file(), info.path(), text as usize, byte as usize),
+            None => Pos::block(info.file(), info.path()),
+        }
+    }
+
     /// `hit`, for a place in a text or an image, or the block of a row of
     /// an image that shows no text.
     fn text_at(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
@@ -896,13 +928,7 @@ impl Map {
                     _ => 0,
                 };
                 let found = parts.found_at(x, y, offset)?;
-                let info = self.blocks.get(found.block);
-                return Some(match found.text {
-                    Some((text, byte)) => {
-                        Pos::text(info.file(), info.path(), text as usize, byte as usize)
-                    }
-                    None => Pos::block(info.file(), info.path()),
-                });
+                return Some(self.found_pos(found));
             }
             return Some(match &image.origin {
                 Some(origin) => place(origin.text, origin.doc.start),

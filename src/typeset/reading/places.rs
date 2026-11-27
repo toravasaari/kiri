@@ -382,6 +382,59 @@ impl Parts {
             .position(|link| link.band == centre.band && link.pieces.iter().any(covers))
     }
 
+    /// What is at the cell `column` of row `row` of the page, in the link
+    /// whose pieces cover the larger part of the cell, the leftmost when
+    /// they cover as much: a link narrower than a cell is there wherever
+    /// in the cell it is. For a cell in a band, `offset` is how far the
+    /// band is scrolled. The place is the middle of what the link covers
+    /// of the cell. `None` when no link is over the cell.
+    pub fn link_in_cell(&self, column: u16, row: u16, offset: u32) -> Option<Found> {
+        let (width, height) = (f32::from(self.cell.0), f32::from(self.cell.1));
+        let (left, top) = (f32::from(column) * width, f32::from(row) * height);
+        // A cell is in a band by its middle, as `found_at` has it.
+        let (middle_x, middle_y) = (left + width / 2.0, top + height / 2.0);
+        let in_band = (self.page.bands.iter().enumerate()).find(|(_, band)| {
+            (band.top..band.top + band.height).contains(&middle_y)
+                && (band.x..band.x + band.visible).contains(&middle_x)
+        });
+        // The cell in the pixels the pieces are in.
+        let (number, items, (left, top)) = match in_band {
+            Some((number, band)) => (
+                Some(number),
+                &band.items,
+                (left - band.x + offset as f32, top - band.top),
+            ),
+            None => (None, &self.page.items, (left, top)),
+        };
+        let (right, bottom) = (left + width, top + height);
+        let mut best: Option<(f32, f32, (f32, f32))> = None;
+        for link in self.page.links().iter().filter(|link| link.band == number) {
+            let mut cover = 0.0;
+            let mut leftmost = f32::MAX;
+            let mut biggest = (0.0, (0.0, 0.0));
+            for piece in &link.pieces {
+                let (from_x, to_x) = (piece.x.max(left), (piece.x + piece.width).min(right));
+                let (from_y, to_y) = (piece.y.max(top), (piece.y + piece.height).min(bottom));
+                if from_x >= to_x || from_y >= to_y {
+                    continue;
+                }
+                let area = (to_x - from_x) * (to_y - from_y);
+                cover += area;
+                leftmost = leftmost.min(piece.x);
+                if area > biggest.0 {
+                    biggest = (area, ((from_x + to_x) / 2.0, (from_y + to_y) / 2.0));
+                }
+            }
+            let better = best
+                .is_none_or(|(most, first, _)| cover > most || (cover == most && leftmost < first));
+            if cover > 0.0 && better {
+                best = Some((cover, leftmost, biggest.1));
+            }
+        }
+        let (_, _, (x, y)) = best?;
+        self.found_in(items, x, y)
+    }
+
     /// What is at the point (`x`, `y`) of the page, in pixels from its top
     /// left. For a point in a band, `offset` is how far the band is scrolled.
     pub fn found_at(&self, x: f32, y: f32, offset: u32) -> Option<Found> {
@@ -393,6 +446,12 @@ impl Parts {
             Some(band) => (&band.items, x - band.x + offset as f32, y - band.top),
             None => (&self.page.items, x, y),
         };
+        self.found_in(items, x, y)
+    }
+
+    /// What is at the point (`x`, `y`) among `items`, in the pixels of the
+    /// page or, for a band's items, of the band's content.
+    fn found_in(&self, items: &[Item], x: f32, y: f32) -> Option<Found> {
         items.iter().find_map(|laid| {
             let at = laid.at.as_ref()?;
             match &laid.shape {

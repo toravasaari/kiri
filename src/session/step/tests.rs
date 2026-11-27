@@ -1162,6 +1162,126 @@ fn a_click_in_an_offset_document_area_lands_on_the_link_at_its_own_column() {
     });
 }
 
+/// The columns of a row of a reading page that the pieces of its links
+/// are over, by the pixels: any overlap with the cell counts.
+fn columns_over_links(lines: &[Line], cell_width: u16) -> Vec<(usize, Vec<u16>)> {
+    let cell = f32::from(cell_width);
+    let mut rows = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        let Some(page) = line.image.as_ref().and_then(|image| image.page.as_ref()) else {
+            continue;
+        };
+        let height = f32::from(page.cells().1.1);
+        let first = lines
+            .iter()
+            .position(|other| {
+                (other.image.as_ref().and_then(|image| image.page.as_ref()))
+                    .is_some_and(|other| Rc::ptr_eq(other, page))
+            })
+            .unwrap();
+        let (top, bottom) = (
+            (index - first) as f32 * height,
+            (index - first + 1) as f32 * height,
+        );
+        let mut columns = Vec::new();
+        for column in 0..60u16 {
+            let (left, right) = (f32::from(column) * cell, f32::from(column + 1) * cell);
+            let over = page
+                .links()
+                .iter()
+                .flat_map(|link| &link.pieces)
+                .any(|piece| {
+                    piece.x < right
+                        && piece.x + piece.width > left
+                        && piece.y < bottom
+                        && piece.y + piece.height > top
+                });
+            if over {
+                columns.push(column);
+            }
+        }
+        rows.push((index, columns));
+    }
+    rows
+}
+
+#[test]
+fn a_click_in_reading_mode_follows_a_link_narrower_than_a_cell_from_any_cell_it_is_over() {
+    use crate::present::scene::Area;
+    use crate::session::areas::{Areas, Region, Role};
+    use crate::session::commands::Action;
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse(
+        "See [i](https://i.example/) and [l](https://l.example/) or [1](https://one.example/) \
+         and [wide link](https://w.example/) here.\n",
+    );
+    let mut cells_followed = 0;
+    for cell_width in [9, 10, 11] {
+        let inputs = Inputs {
+            reading: Some(Reading {
+                pictures: Default::default(),
+                glyphs: Default::default(),
+                fonts: Rc::new(Fonts::fixture()),
+                wide: Wide::Scroll,
+                snap: false,
+                zoom: 100,
+            }),
+            ..Inputs::new(Capabilities {
+                cell_pixels: Some((cell_width, 20)),
+                ..Capabilities::kitty(60)
+            })
+        };
+        let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+        let expected = columns_over_links(&lines, cell_width);
+        let map = Map::new(&lines, &blocks);
+        let shown = Shown::new(Content::Document(&document), true);
+        let mut state = state_over(&document);
+        with_shown(
+            (&lines, &map),
+            shown,
+            5,
+            (&mut state, run(now), now),
+            |pager| {
+                step(pager, Msg::Shown(now));
+                let areas = Areas::new(vec![Region {
+                    role: Role::Document,
+                    area: Area {
+                        column: 1,
+                        row: 1,
+                        columns: 60,
+                        rows: 5,
+                    },
+                }]);
+                for (index, columns) in &expected {
+                    let lead = crate::typeset::wrap::width(&lines[*index].lead) as u16;
+                    for column in 0..(60 - lead) {
+                        let action = Action::Click {
+                            column: column + lead + 1,
+                            row: *index as u16 + 1,
+                        };
+                        let effects = pager
+                            .state
+                            .pointed_in(&areas, action, now, pager.layout)
+                            .expect("a click is answered");
+                        let want = if columns.contains(&column) {
+                            vec!["copy"]
+                        } else {
+                            vec![]
+                        };
+                        assert_eq!(
+                            kinds(&effects),
+                            want,
+                            "cell {column} of line {index} at {cell_width} px"
+                        );
+                        cells_followed += want.len();
+                    }
+                }
+            },
+        );
+    }
+    assert!(cells_followed > 30, "{cells_followed}");
+}
+
 #[test]
 fn a_key_goes_to_the_document_while_another_area_is_the_key_area() {
     let now = Instant::now();

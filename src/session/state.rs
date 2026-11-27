@@ -725,9 +725,7 @@ impl State {
         let doc = doc!(self);
         let edition = doc.edition.as_ref()?;
         let seen = layout.seen();
-        let place = seen
-            .map
-            .hit(seen.lines, line, usize::from(column).checked_sub(1)?)?;
+        let place = (seen.map).link_hit(seen.lines, line, usize::from(column).checked_sub(1)?)?;
         let at = (doc.stops(layout).into_iter()).find(|at| {
             matches!(at.stop.kind, Kind::Link { .. }) && at.stop.range.contains(&place)
         })?;
