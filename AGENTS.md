@@ -127,6 +127,9 @@ Run everything through `make` so local runs match CI:
   name, `DRY_RUN=1` shows what would happen, and `make release-undo` takes
   back a release that is not pushed. See `scripts/release.sh`.
 - `cargo run -- <file.md>` renders a document in the current terminal.
+- `make roadmap-open` lists the parts of docs/roadmap.md that are not done,
+  with their line numbers; read the lines of the parts you need instead of
+  the whole roadmap.
 - A build outside the main checkout, such as a scratch copy for a review,
   uses a `CARGO_TARGET_DIR` of its own, never the checkout's `target/`, and
   removes it when done. Test binaries bake in their source path, so a shared
