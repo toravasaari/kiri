@@ -1365,11 +1365,11 @@ fn every_block_of_a_fixture_or_an_example_has_its_place_on_its_source() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#107 (paragraph)",
+        "S01-text.md#87 (paragraph)",
         "the anchor line before it was given to it, and its bytes do not hold that line",
     ),
     (
-        "S01-text.md#133 (paragraph)",
+        "S01-text.md#113 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (

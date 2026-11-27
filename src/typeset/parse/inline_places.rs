@@ -315,7 +315,7 @@ const EXCLUDED: &[(&str, usize)] = &[
     ("S01-text.md", 144),
     // The anchor line, `<a name="here"></a>`: a paragraph of an anchor, which
     // the model reads as a place and the helper drops as two tags.
-    ("S01-text.md", 304),
+    ("S01-text.md", 256),
     ("html-tags.md", 14),
     ("html-tags.md", 96),
 ];
