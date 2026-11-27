@@ -383,12 +383,12 @@ impl Parts {
     }
 
     /// What is at the cell `column` of row `row` of the page, in the link
-    /// whose pieces cover the larger part of the cell, the leftmost when
-    /// they cover as much: a link narrower than a cell is there wherever
-    /// in the cell it is, and one whose line is not on the row's middle is
-    /// not there. For a cell in a band, `offset` is how far the
-    /// band is scrolled. The place is the middle of what the link covers
-    /// of the cell. `None` when no link is over the cell.
+    /// whose pieces cover the larger part of the cell, the leftmost when they
+    /// cover as much: a link narrower than a cell is there wherever in the
+    /// cell it is, and one whose line is not on the row's middle is not
+    /// there. For a cell in a band, `offset` is how far the band is
+    /// scrolled. The place is the middle of what the link covers of the
+    /// cell. `None` when no link is over the cell.
     pub fn link_in_cell(&self, column: u16, row: u16, offset: u32) -> Option<Found> {
         let (width, height) = (f32::from(self.cell.0), f32::from(self.cell.1));
         let (left, top) = (f32::from(column) * width, f32::from(row) * height);

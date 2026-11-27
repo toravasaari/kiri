@@ -894,7 +894,7 @@ impl Map {
 
     /// For a line `line`, `laid`, that is a row of a reading page: the page's
     /// parts, the row's number in the page and how far its band is scrolled
-    /// (0 outside a band). `None` for any other line.
+    /// (0 outside a band). `None` for any other line: it is not a page row.
     fn page_row<'a>(&self, laid: &'a Line, line: usize) -> Option<(&'a Rc<Parts>, u16, u32)> {
         let image = laid.image.as_ref()?;
         let parts = image.page.as_ref()?;
