@@ -177,6 +177,11 @@ pub enum Treatment {
     LineBreak,
     /// An image.
     Image,
+    /// A `<ul>` or `<ol>` whose items are read as a list.
+    List,
+    /// An `<li>`: an item of the list that reads it, and nothing of its own
+    /// anywhere else, where its tags are dim.
+    Item,
     /// Not read, and left as source.
     Source,
 }
@@ -404,15 +409,18 @@ pub static TABLE: [Element; 46] = [
     ),
     Element {
         holds: Holds::Only(&["li"]),
+        treatment: Treatment::List,
         ..source_block("ol")
     },
     Element {
         holds: Holds::Only(&["li"]),
+        treatment: Treatment::List,
         ..source_block("ul")
     },
     Element {
         end_optional: true,
         ended_by: EndedBy::Names(&["li"]),
+        treatment: Treatment::Item,
         ..source_block("li")
     },
     source_block("table"),
@@ -510,11 +518,12 @@ mod tests {
                 "figure",
                 "figcaption",
                 "hr",
-                "ol",
-                "ul",
-                "li",
                 "table"
             ]
+        );
+        assert_eq!(
+            names(|row| matches!(row.treatment, Treatment::List | Treatment::Item)),
+            ["ol", "ul", "li"]
         );
         assert_eq!(
             names(|row| row.kind == Kind::RawText),

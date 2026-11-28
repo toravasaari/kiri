@@ -2391,18 +2391,20 @@ pub const ROWS: &[Row] = &[
         name: "a div of li and ul keeps the end tags of the list",
         source: "<div><li>a<ul><li>b</li></ul></div>\n",
         blocks: r#"
-            html "<li>a<ul><li>b</li></ul>" @1~0..35
+            html "<li>" @1~0..35
+            p "a" @1~0..35
+            html "<ul><li>b</li></ul>" @1~0..35
         "#,
     },
-    // The next `<li>` ends an open `<li>`, so the first no longer holds what
-    // a Markdown block after it does, and is shown as source. Step 3 reads
-    // lists and changes these rows.
+    // An `<li>` that no list reads has no effect: its tags are dim and what
+    // it holds is read on its own, whatever ended it.
     Row {
-        name: "an li ended by the next li, with a markdown block after, is source",
+        name: "an li ended by the next li, with a markdown block after, is dim tags",
         source: "<ul>\n<li>one\n<li>two\n\nSome text.\n\n</ul>\n",
         blocks: r#"
             html "<ul>" @1~0..20
-            html "<li>one\n" @2~0..20
+            html "<li>" @2~0..20
+            p "one" @2~0..20
             html "<li>" @3~0..20
             p "two" @3~0..20
             p "Some text." @5=22..32
@@ -2410,11 +2412,13 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "an li and a list ended by the next li, with a markdown block after, is source",
+        name: "an li and a list ended by the next li, with a markdown block after, is dim tags",
         source: "<ul>\n<li>a\n<ul>\n<li>b\n</ul>\n<li>c\n\nmd\n\n</ul>\n",
         blocks: r#"
             html "<ul>" @1~0..33
-            html "<li>a\n<ul>\n<li>b\n</ul>\n" @2~0..33
+            html "<li>" @2~0..33
+            p "a" @2~0..33
+            html "<ul>\n<li>b\n</ul>" @3~0..33
             html "<li>" @6~0..33
             p "c" @6~0..33
             p "md" @8=35..37
@@ -2422,11 +2426,30 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "an li in a div is dim tags and its text a paragraph",
+        source: "<div><li>a</li></div>\n",
+        blocks: r#"
+            html "<li>" @1~0..21
+            p "a" @1~0..21
+            html "</li>" @1~0..21
+        "#,
+    },
+    Row {
+        name: "an li at the top level is dim tags and its text a paragraph",
+        source: "<li>a</li>\n",
+        blocks: r#"
+            html "<li>" @1~0..10
+            p "a" @1~0..10
+            html "</li>\n" @1~0..10
+        "#,
+    },
+    Row {
         name: "an li ended by the next li in a div shows the first tag dim",
         source: "<div><li><li>b</div>\n",
         blocks: r#"
             html "<li>" @1~0..20
-            html "<li>b" @1~0..20
+            html "<li>" @1~0..20
+            p "b" @1~0..20
         "#,
     },
     // A `ul` and an `ol` hold only `li`s, white space and comments: anything
@@ -2480,9 +2503,13 @@ pub const ROWS: &[Row] = &[
         source: "<ul>\n<li>a</li>\n\ntext\n\n<li>b</li>\n</ul>\n",
         blocks: r#"
             html "<ul>" @1~0..15
-            html "<li>a</li>\n" @2~0..15
+            html "<li>" @2~0..15
+            p "a" @2~0..15
+            html "</li>\n" @2~0..15
             p "text" @4=17..21
-            html "<li>b</li>" @6~23..39
+            html "<li>" @6~23..39
+            p "b" @6~23..39
+            html "</li>" @6~23..39
             html "</ul>\n" @7~23..39
         "#,
     },
@@ -2491,17 +2518,21 @@ pub const ROWS: &[Row] = &[
         source: "<ul>\n<li>a</li>\n<b>x</b>\n</ul>\n",
         blocks: r#"
             html "<ul>" @1~0..30
-            html "<li>a</li>" @2~0..30
+            html "<li>" @2~0..30
+            p "a" @2~0..30
+            html "</li>" @2~0..30
             p "**x**" @3~0..30
             html "</ul>\n" @4~0..30
         "#,
     },
     Row {
-        name: "a void tag directly in a ul dissolves it, and the item stays",
+        name: "a void tag directly in a ul dissolves it, and the item is dim tags",
         source: "<ul><li>a</li><br></ul>\n",
         blocks: r#"
             html "<ul>" @1~0..23
-            html "<li>a</li>" @1~0..23
+            html "<li>" @1~0..23
+            p "a" @1~0..23
+            html "</li>" @1~0..23
             p "<br>" @1~0..23
             html "</ul>\n" @1~0..23
         "#,

@@ -554,6 +554,9 @@ impl<'t> Reader<'t> {
             // A `<summary>` that is not the summary of a `<details>` has no
             // effect: its tags are dim and its text is read on its own.
             Treatment::Summary => self.dissolve(node, open, round, out),
+            // An `<li>` that no list reads, such as one in a `<div>`, has no
+            // effect either.
+            Treatment::Item => self.dissolve(node, open, round, out),
             // The elements that are source for now.
             _ => self.as_written(node, open, round, out),
         }
