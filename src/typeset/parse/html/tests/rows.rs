@@ -2429,6 +2429,52 @@ pub const ROWS: &[Row] = &[
             html "<li>b" @1~0..20
         "#,
     },
+    // A `ul` and an `ol` hold only `li`s, white space and comments: anything
+    // else directly in them dissolves the list, as an element that its row
+    // does not allow is dissolved. What a list holds is read on its own.
+    Row {
+        name: "text directly in a ul dissolves it: its tags dim, the text a paragraph",
+        source: "<ul>text</ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..13
+            p "text" @1~0..13
+            html "</ul>\n" @1~0..13
+        "#,
+    },
+    Row {
+        name: "a div directly in an ol dissolves it: the div reads as its text",
+        source: "<ol>\n<div>a</div>\n</ol>\n",
+        blocks: r#"
+            html "<ol>" @1~0..23
+            p "a" @2~0..23
+            html "</ol>\n" @3~0..23
+        "#,
+    },
+    Row {
+        name: "an ol of only li, white space and a comment is source, as before",
+        source: "<ol>\n<!-- one -->\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            html "<ol>\n<!-- one -->\n<li>a</li>\n</ol>\n" @1=0..34
+        "#,
+    },
+    Row {
+        name: "a ul directly in a ul dissolves the outer list, the inner one stays source",
+        source: "<ul><ul><li>x</li></ul></ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..28
+            html "<ul><li>x</li></ul>" @1~0..28
+            html "</ul>\n" @1~0..28
+        "#,
+    },
+    Row {
+        name: "a markdown block directly in a ul dissolves it: its tags dim, the text a paragraph",
+        source: "<ul>\n\ntext\n\n</ul>\n",
+        blocks: r#"
+            html "<ul>\n" @1=0..4
+            p "text" @3=6..10
+            html "</ul>\n" @5=12..17
+        "#,
+    },
     Row {
         name: "a div of dd and a table keeps the end tag of the table",
         source: "<div>\n<dd>a<table><tr><td>b</td></tr></table></div>\n",
@@ -2978,6 +3024,13 @@ pub const HIDE_ROWS: &[Row] = &[
             p "</div>" @3~0..23
             centred @5=25..52
               p "after" @5~25..52
+        "#,
+    },
+    Row {
+        name: "text directly in a ul dissolves it, and its tags are left out at hide",
+        source: "<ul>text</ul>\n",
+        blocks: r#"
+            p "text" @1~0..13
         "#,
     },
 ];

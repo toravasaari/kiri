@@ -76,6 +76,9 @@ pub enum Holds {
     Text,
     /// Blocks, and text between them.
     Blocks,
+    /// Only elements of these names, as a `<ul>` holds only `<li>`s; white
+    /// space and comments are allowed too, and nothing else.
+    Only(&'static [&'static str]),
 }
 
 /// The start tags that end an element whose end tag may be left out.
@@ -399,8 +402,14 @@ pub static TABLE: [Element; 46] = [
         Holds::Nothing,
         Treatment::Source,
     ),
-    source_block("ol"),
-    source_block("ul"),
+    Element {
+        holds: Holds::Only(&["li"]),
+        ..source_block("ol")
+    },
+    Element {
+        holds: Holds::Only(&["li"]),
+        ..source_block("ul")
+    },
     Element {
         end_optional: true,
         ended_by: EndedBy::Names(&["li"]),

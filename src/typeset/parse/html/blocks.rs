@@ -429,24 +429,37 @@ impl<'t> Reader<'t> {
     }
 
     /// Whether `node` holds no more than its row allows: an element that holds
-    /// text holds no block.
+    /// text holds no block, and a list holds only its items, with white space
+    /// and comments between them.
     fn holds_allowed(&self, node: usize, open: &Opened) -> bool {
-        open.row.holds != Holds::Text
-            || self.children[node]
-                .iter()
-                .all(|&child| match &self.tree.nodes[child].kind {
-                    NodeKind::Text
-                    | NodeKind::RawTag { .. }
-                    | NodeKind::Comment
-                    | NodeKind::Tag { .. } => true,
-                    NodeKind::Element(inner) if self.is_summary_heading(open, inner, child) => true,
-                    NodeKind::Element(inner) => {
-                        inner.row.kind == Kind::RawText
-                            && inner.row.treatment == Treatment::Source
-                            && self.whole_in_one(child, inner).is_some()
-                    }
-                    _ => false,
-                })
+        match open.row.holds {
+            Holds::Nothing | Holds::Blocks => true,
+            Holds::Only(names) => self.children[node].iter().all(|&child| {
+                self.blank(child)
+                    || matches!(self.tree.nodes[child].kind, NodeKind::Comment)
+                    || matches!(&self.tree.nodes[child].kind,
+                        NodeKind::Element(inner) if names.contains(&inner.row.name))
+            }),
+            Holds::Text => {
+                self.children[node]
+                    .iter()
+                    .all(|&child| match &self.tree.nodes[child].kind {
+                        NodeKind::Text
+                        | NodeKind::RawTag { .. }
+                        | NodeKind::Comment
+                        | NodeKind::Tag { .. } => true,
+                        NodeKind::Element(inner) if self.is_summary_heading(open, inner, child) => {
+                            true
+                        }
+                        NodeKind::Element(inner) => {
+                            inner.row.kind == Kind::RawText
+                                && inner.row.treatment == Treatment::Source
+                                && self.whole_in_one(child, inner).is_some()
+                        }
+                        _ => false,
+                    })
+            }
+        }
     }
 
     /// Whether `inner` at `node` is a whole heading in the summary `open`,
