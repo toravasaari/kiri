@@ -12,6 +12,9 @@ kiri stays at 0.x until its command line settles.
 - The HTML heads of README files: centred titles, logos and link rows, `<a>`
   links, and `<u>`, `<span>`, `<ins>` and `<strike>` in text. Two settings
   choose how much HTML is read and whether unread tags show.
+- HTML lists, `<ul>`, `<ol>` and `<li>`, drawn as Markdown lists, also inside
+  `<details>`, quotes and list items; a checkbox that starts an item can be a
+  task box.
 - Footnotes, shown at the end of the document with links in both directions.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
