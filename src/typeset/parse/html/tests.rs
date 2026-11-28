@@ -657,7 +657,11 @@ fn parse_differs_from_a_browser_as_pinned() {
 #[test]
 fn the_corpus_of_the_comparison_has_lists() {
     let count = browser::with_lists();
-    assert!(count >= 150, "{count} of 600 documents have a list");
+    assert!(
+        count >= 400,
+        "{count} of {} documents have a list",
+        browser::DOCUMENTS
+    );
 }
 
 #[test]

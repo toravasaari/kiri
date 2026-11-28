@@ -2,8 +2,8 @@
 //!
 //! comrak writes the HTML of a document, a browser-grade parser (`scraper`,
 //! over html5ever) builds its tree, and that tree is mapped onto the shapes
-//! kiri reads: centred blocks, `<details>`, lists, headings and paragraphs. What kiri
-//! reads, from `parse`, is mapped onto the same shapes. Only structure and
+//! kiri reads: centred blocks, `<details>`, lists, headings and paragraphs.
+//! What kiri reads, from `parse`, is mapped onto the same shapes. Only structure and
 //! plain text are compared, not inline markup: comrak writes `<strong>` where
 //! the outline has `**`, and a Markdown paragraph is a `<p>` of comrak's.
 //!
@@ -15,10 +15,10 @@
 //! the `</p>` and `</li>` that may be left out; and the text has no Markdown
 //! but the lists, which are written as Markdown or as `<ul>` and `<ol>`, with
 //! a blank line round the Markdown ones. A list holds only items, an item only
-//! text, a `<p>` and lists, and a list has at least one item, as the plan of
-//! the lists says: text or another element directly in a list, a stray end
-//! tag in one, an `<li>` after an open `<div>` in an item, more than 128
-//! nested lists and lists in a table are where kiri differs on purpose.
+//! text, a `<p>` and lists, and a list has at least one item. Text or another
+//! element directly in a list, a stray end tag in one, an `<li>` after an open
+//! `<div>` in an item, more than 128 nested lists and lists in a table are
+//! where kiri differs from a browser on purpose, so the documents have none.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -178,6 +178,9 @@ fn walk(
             }
             "ul" | "ol" => {
                 flush(run, out);
+                // Plain digits only. A browser reads any integer (`5x` is 5,
+                // `-3` is -3), kiri one to nine digits, else 1; the generator
+                // writes one to nine digits, where they agree.
                 let start = (name == "ol").then(|| {
                     let start = inner.value().attr("start");
                     start
@@ -320,7 +323,7 @@ struct Generator {
     rng: Rng,
     /// Whether there is no blank line to be, as in a heading or a summary:
     /// one holds text, and what a blank line makes in it, a block of
-    /// Markdown, is a fault of its own (P2 of the plan).
+    /// Markdown, is a fault of its own that the comparison stays clear of.
     tight: bool,
     /// The words made so far, which are numbered.
     words: usize,
@@ -531,8 +534,8 @@ struct Facts {
     centred: BTreeMap<String, usize>,
     details: Vec<String>,
     headings: Vec<(u8, String)>,
-    /// The first number of each list.
-    lists: Vec<Option<u64>>,
+    /// The first number and the count of items of each list.
+    lists: Vec<(Option<u64>, usize)>,
     /// The tag that the first block left as source starts with.
     source: Option<String>,
 }
@@ -546,7 +549,7 @@ fn facts(shapes: &[Shape], centred: bool, into: &mut Facts) {
                 facts(inner, false, into);
             }
             Shape::List(start, items) => {
-                into.lists.push(*start);
+                into.lists.push((*start, items.len()));
                 for item in items {
                     facts(item, centred, into);
                 }
@@ -591,7 +594,7 @@ fn why(browser: &[Shape], kiri: &[Shape]) -> String {
     } else if b.details != k.details {
         "details lost, made or cut".to_owned()
     } else if b.lists != k.lists {
-        "lists lost, made, or numbered otherwise".to_owned()
+        "lists lost, made, or with other items or numbers".to_owned()
     } else if b.headings != k.headings {
         "headings lost or made".to_owned()
     } else {
