@@ -2890,6 +2890,18 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "an item with a stray end tag is tight",
+        source: "<ul>\n<li>a</div>\n</li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..39
+              item
+                p "a" @2~0..39
+                html "</div>" @2~0..39
+              item
+                p "b" @4~0..39
+        "#,
+    },
+    Row {
         name: "a task box with nothing after it is an item with no text",
         source: "<ul>\n<li><input type=\"checkbox\" checked></li>\n</ul>\n",
         blocks: r#"
@@ -3049,6 +3061,19 @@ pub const ROWS: &[Row] = &[
 /// own. The rows of `ROWS` that this list does not repeat read the same at
 /// both levels.
 pub const GITHUB_ROWS: &[Row] = &[
+    Row {
+        name: "an item with a dim tag round its text is tight at the default level",
+        source: "<ul>\n<li><center>a</center></li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..49
+              item
+                html "<center>" @2~0..49
+                p "a" @2~0..49
+                html "</center>" @2~0..49
+              item
+                p "b" @3~0..49
+        "#,
+    },
     Row {
         name: "an ul is read at GitHub's level too, and an ol with its start",
         source: "<ul>\n<li>a</li>\n</ul>\n\n<ol start=\"3\">\n<li>b</li>\n</ol>\n",

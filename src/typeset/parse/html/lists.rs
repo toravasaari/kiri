@@ -12,8 +12,10 @@
 //!   Markdown; `<li></li>` and an item with a task box stay.
 //! - `<ol start>` numbers from a number of at most nine digits, the most
 //!   that comrak takes, and from 1 for anything else; a `<ul>` has no start.
-//! - The list is tight unless an item holds two blocks that are not lists, so
-//!   an item with its nested lists is tight, as `- a` with `  - b` is.
+//! - The list is tight unless an item holds two blocks that are neither lists
+//!   nor HTML (a dim tag, an `<hr>`), so an item with its nested lists is
+//!   tight, as `- a` with `  - b` is, and `- <center>a</center>` is tight at
+//!   every level, as comrak takes tightness from the source.
 //! - The places are those of a Markdown list: the list's own, and for each
 //!   item no place of its own, only the places of its blocks.
 //! - An item that starts with an `<input type="checkbox">` is a task item,
@@ -71,7 +73,8 @@ impl Reader<'_> {
             return true;
         }
         let tight = read.iter().all(|item| {
-            let flat = (item.blocks.iter()).filter(|block| !matches!(block, Block::List(_)));
+            let flat = (item.blocks.iter())
+                .filter(|block| !matches!(block, Block::List(_) | Block::Html(_)));
             flat.count() < 2
         });
         let list = Block::List(List {
