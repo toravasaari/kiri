@@ -397,7 +397,8 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Heading(heading) => {
             unknown.hid = false;
             let content = inlines(node, unknown);
-            if emptied(node, draws_nothing(&content) && unknown.hid, unknown) {
+            let empty = draws_nothing(&content) && unknown.hid;
+            if emptied(node.first_child().is_some(), empty, unknown.html_tags) {
                 return None;
             }
             Block::Heading {
@@ -409,7 +410,8 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Paragraph => {
             unknown.hid = false;
             let content = inlines(node, unknown);
-            if emptied(node, draws_nothing(&content) && unknown.hid, unknown) {
+            let empty = draws_nothing(&content) && unknown.hid;
+            if emptied(node.first_child().is_some(), empty, unknown.html_tags) {
                 return None;
             }
             Block::Paragraph(content)
@@ -421,7 +423,11 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         },
         NodeValue::BlockQuote => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
-            if emptied(node, blocks.is_empty(), unknown) {
+            if emptied(
+                node.first_child().is_some(),
+                blocks.is_empty(),
+                unknown.html_tags,
+            ) {
                 return None;
             }
             children = positions;
@@ -429,7 +435,11 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
         NodeValue::Alert(alert) => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
-            if emptied(node, blocks.is_empty(), unknown) {
+            if emptied(
+                node.first_child().is_some(),
+                blocks.is_empty(),
+                unknown.html_tags,
+            ) {
                 return None;
             }
             children = positions;
@@ -451,7 +461,11 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             let (items, positions): (Vec<_>, Vec<_>) = (node.children())
                 .filter_map(|item| list_item(item, unknown))
                 .unzip();
-            if emptied(node, items.is_empty(), unknown) {
+            if emptied(
+                node.first_child().is_some(),
+                items.is_empty(),
+                unknown.html_tags,
+            ) {
                 return None;
             }
             children = positions;
@@ -476,10 +490,11 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     Some((block, position))
 }
 
-/// Whether the block `node` is left out: hiding the tags emptied it, and it
-/// held something as written. What was empty as written stays.
-fn emptied(node: Node<'_>, empty: bool, unknown: &Unknown) -> bool {
-    empty && unknown.html_tags == HtmlTags::Hide && node.first_child().is_some()
+/// Whether a block is left out: `empty` once hiding the tags has taken
+/// what it held, and `held` something as written. What was empty as written
+/// stays. The `<li>` of an HTML list uses it too (`html/lists.rs`).
+fn emptied(held: bool, empty: bool, tags: HtmlTags) -> bool {
+    empty && tags == HtmlTags::Hide && held
 }
 
 /// Whether `content` draws nothing: it is empty, or only line breaks, and
@@ -509,7 +524,11 @@ fn list_item(node: Node<'_>, unknown: &mut Unknown) -> Option<(ListItem, Positio
         _ => None,
     };
     let (blocks, children): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
-    if emptied(node, blocks.is_empty(), unknown) {
+    if emptied(
+        node.first_child().is_some(),
+        blocks.is_empty(),
+        unknown.html_tags,
+    ) {
         return None;
     }
     let position = Position { at: None, children };

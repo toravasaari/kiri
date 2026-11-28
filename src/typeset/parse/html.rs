@@ -12,6 +12,7 @@ use crate::typeset::model::{Inline, Length};
 mod blocks;
 mod elements;
 mod inline;
+mod lists;
 mod tree;
 pub(super) use blocks::{Part, read};
 #[cfg(test)]

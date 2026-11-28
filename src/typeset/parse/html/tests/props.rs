@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 57] = [
+const PIECES: [&str; 61] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -70,6 +70,11 @@ const PIECES: [&str; 57] = [
     "</li>",
     "<ul>",
     "</ul>",
+    // An ordered list with a start, and one whose start is too long to be a
+    // number of comrak's.
+    "<ol start=\"3\">",
+    "<ol start=\"99999999999999999999\">",
+    "</ol>",
     "<dd>",
     "</dd>",
     "<div>x < y MARK</div>",
@@ -77,6 +82,8 @@ const PIECES: [&str; 57] = [
     // alone and beside text.
     "<summary><h1 align=\"center\">MARK</h1></summary>",
     "<summary>MARK<h1>MARK <b>MARK</b></h1>MARK</summary>",
+    // A task box: read as a box where an item starts with it, else a tag.
+    "<input type=\"checkbox\" checked>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -228,6 +235,7 @@ fn no_tag_is_shown(
 ) -> Result<(), proptest::test_runner::TestCaseError> {
     for name in [
         "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
+        "input",
     ] {
         for end in [false, true] {
             prop_assert_eq!(
@@ -299,7 +307,7 @@ proptest! {
         // whatever tags are in them: `hide` never hides source.
         // So is an HTML block that cannot be read: the one with `x < y`.
         prop_assume!(!source.contains("x < y"));
-        for name in ["pre", "script", "textarea", "table", "dl", "hr", "ul", "li", "dd"] {
+        for name in ["pre", "script", "textarea", "table", "dl", "hr", "ul", "ol", "li", "dd"] {
             prop_assume!(!shows_source_of(&shown, name));
         }
         no_tag_is_shown(&source, &marks, &shown)?;
@@ -311,8 +319,9 @@ proptest! {
     /// What can be said without reading the whole tree, from the debug text
     /// of what was read:
     ///
-    /// - for eight tags, the copies shown dim are no more than the ones in
-    ///   the source (none made up or shown twice);
+    /// - for the tags named in the first loop of the body, the copies shown
+    ///   dim are no more than the ones in the source (none made up or shown
+    ///   twice);
     /// - a `<details>` of the source is a `Block::Details` or shown dim;
     ///   the same for `<summary>`, whose read form is a `Details` with a
     ///   summary of its own, so none is lost;
@@ -331,7 +340,9 @@ proptest! {
     ) {
         let document = parse_all(&source);
         let shown = format!("{:?}", document.blocks);
-        for name in ["p", "div", "center", "details", "summary", "a", "h1", "img"] {
+        for name in [
+            "p", "div", "center", "details", "summary", "a", "h1", "img", "ul", "ol", "li", "input",
+        ] {
             for end in [false, true] {
                 let (in_source, in_reading) =
                     (count_tags(&source, name, end), count_tags(&shown, name, end));
@@ -345,7 +356,7 @@ proptest! {
         // An end tag is shown dim, or it ends an element whose start tag was
         // read: the end tags that were read are no more than the start tags
         // that were read. A stray end tag that is lost breaks this.
-        for name in ["p", "div", "center", "details", "summary", "a", "h1"] {
+        for name in ["p", "div", "center", "details", "summary", "a", "h1", "ul", "ol", "li"] {
             let read_starts = count_tags(&source, name, false) - count_tags(&shown, name, false);
             let read_ends = count_tags(&source, name, true) - count_tags(&shown, name, true);
             prop_assert!(

@@ -1,0 +1,92 @@
+---
+source: src/typeset/parse/html/tests/table.rs
+expression: outline(source)
+---
+h1 "HTML lists in the shapes of real documents" @1=0..44
+p "Each part below is one shape of an HTML list, in words of our own. A list that is well formed is drawn as a Markdown list; one that is broken keeps its tags dim and shows what it holds on its own." @3=46..242
+list @7=244..304
+  item
+    p "Salt" @8~244..304
+  item
+    p "Flour" @9~244..304
+  item
+    p "Water" @10~244..304
+list start=3 @13=306..413
+  item
+    p "Third, with no end tag" @14~306..413
+  item
+    p "Fourth, with none either" @15~306..413
+  item
+    p "Fifth, with one" @16~306..413
+list @19=415..584
+  item
+    p "Fruit" @20~415..584
+    list @21=436..493
+      item
+        p "Apples" @22~415..584
+      item
+        p "Pears" @23~415..584
+  item
+    p "Bread" @26~415..584
+    list start=1 @27=518..570
+      item
+        p "Rye" @28~415..584
+      item
+        p "Oat" @29~415..584
+list loose @34=586..690
+  item
+    p "A paragraph in an item." @35~586..690
+  item
+    p "Two paragraphs" @36~586..690
+    p "in this one." @36~586..690
+list loose @39=692..815
+  item
+    p "An item with a blank line round its text." @42=703..744
+    p "Its second paragraph, in Markdown." @44=746..780
+  item
+    p "A short item" @47~782..815
+details "A list in a details" @50=817..1002
+  list start=1 @53=867..990
+    item [x]
+      p "Done" @54~867..990
+    item [ ]
+      p "Still to do" @55~867..990
+list @60=1004..1255
+  item [x]
+    p "A ticked task" @61~1004..1255
+  item [ ]
+    p "An open task" @62~1004..1255
+  item
+    p "<input type=\"radio\" checked> A radio, which has no effect" @63~1004..1255
+  item
+    p "Text, then <input type=\"checkbox\"> a box with no effect" @64~1004..1255
+list loose @67=1257..1366
+  item
+    p "A Markdown item that holds an HTML list:" @67=1259..1299
+    list @69=1303..1366
+      item
+        p "First inner" @70~1303..1366
+      item
+        p "Second inner" @71~1303..1366
+quote @74=1368..1472
+  p "A quote that holds an HTML list:" @74=1370..1402
+  list start=1 @76=1407..1472
+    item
+      p "First quoted" @77~1407..1472
+    item
+      p "Second quoted" @78~1407..1472
+html "<ul></ul>\n" @81=1474..1483
+html "<ul>" @83~1485..1566
+p "Text that a list may not hold directly." @84~1485..1566
+html "<li>" @85~1485..1566
+p "An item beside it" @85~1485..1566
+html "</li>" @85~1485..1566
+html "</ul>\n" @86~1485..1566
+html "<li>" @89~1568..1621
+p "An item with no list round it" @89~1568..1621
+html "</li>" @89~1568..1621
+html "<ul>" @92~1623..1683
+html "<li>" @93~1623..1683
+p "A list that is never closed" @93~1623..1683
+html "<li>" @94~1623..1683
+p "Its second item" @94~1623..1683

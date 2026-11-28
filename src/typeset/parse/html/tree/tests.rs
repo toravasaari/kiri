@@ -115,6 +115,57 @@ fn a_start_tag_ends_an_open_p_and_a_block_element_nests() {
 }
 
 #[test]
+fn a_start_tag_of_li_ends_an_open_li() {
+    // The two are siblings, and the end tag of the list ends the last.
+    assert_eq!(
+        tree("<ul><li>a<li>b</ul>\n"),
+        "ul\n  li [implied end]\n    text \"a\"\n  li [implied end]\n    text \"b\"\n"
+    );
+    // The `<p>` and the `<li>` both end, one after the other.
+    assert_eq!(
+        tree("<li>a<p>b<li>c\n"),
+        "li [implied end]\n  text \"a\"\n  p [implied end]\n    text \"b\"\nli [implied end]\n  text \"c\"\n"
+    );
+    // The `<li>` of a list inside an item is not the item's sibling: the
+    // list on top of the stack is open, and it holds it.
+    assert_eq!(
+        tree("<ul><li>a<ul><li>b</ul><li>c</ul>\n"),
+        concat!(
+            "ul\n",
+            "  li [implied end]\n",
+            "    text \"a\"\n",
+            "    ul\n",
+            "      li [implied end]\n",
+            "        text \"b\"\n",
+            "  li [implied end]\n",
+            "    text \"c\"\n",
+        )
+    );
+    // An end tag of a list ends an open item, whole.
+    assert_eq!(
+        tree("<ul><li>a</ul>\n"),
+        "ul\n  li [implied end]\n    text \"a\"\n"
+    );
+    // An item that has its end tag is ended by it, and the next is a sibling.
+    assert_eq!(
+        tree("<ul><li>a</li><li>b</li></ul>\n"),
+        "ul\n  li\n    text \"a\"\n  li\n    text \"b\"\n"
+    );
+    // The first `</li>` ends the second item, which the first item's start
+    // tag ended; the second `</li>` has nothing left to end.
+    assert_eq!(
+        tree("<li>a<li>b</li></li>\n"),
+        "li [implied end]\n  text \"a\"\nli\n  text \"b\"\nunpaired </li>\n"
+    );
+    // A Markdown block ends an open `<p>` only, not an `<li>`: it is a leaf of
+    // the item, and the next `<li>` ends the item.
+    assert_eq!(
+        tree("<li>\n\ntext\n\n<li>b\n"),
+        "li [implied end]\n  markdown\nli [implied end]\n  text \"b\"\n"
+    );
+}
+
+#[test]
 fn an_end_tag_ends_the_nearest_open_element_of_its_name() {
     assert_eq!(
         tree("<div><div>a</div>b</div>\n"),

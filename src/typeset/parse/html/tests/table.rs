@@ -108,6 +108,14 @@ fn the_shapes_of_real_readmes_read_as_they_do_today() {
     insta::assert_snapshot!(outline(source));
 }
 
+/// The shapes of HTML lists (`tests/fixtures/html-lists.md`) as `parse`
+/// reads them: the whole outline is the snapshot, to be read by a person.
+#[test]
+fn the_shapes_of_html_lists_read_as_lists_or_as_dim_tags() {
+    let source = include_str!("../../../../../tests/fixtures/html-lists.md");
+    insta::assert_snapshot!(outline(source));
+}
+
 /// How the time to parse `make(n)` grows from `n` to eight times `n`
 /// (`crate::testing::growth`).
 fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
@@ -227,8 +235,13 @@ fn write_blocks(
                 write_blocks(document, inner, path, depth + 1, out);
             }
             Block::List(list) => {
-                for (item, ListItem { blocks, .. }) in list.items.iter().enumerate() {
-                    writeln!(out, "{indent}  item").unwrap();
+                for (item, ListItem { blocks, checked }) in list.items.iter().enumerate() {
+                    let task = match checked {
+                        None => "",
+                        Some(true) => " [x]",
+                        Some(false) => " [ ]",
+                    };
+                    writeln!(out, "{indent}  item{task}").unwrap();
                     path.push(item);
                     write_blocks(document, blocks, path, depth + 2, out);
                     path.pop();
@@ -252,7 +265,15 @@ fn what(block: &Block) -> String {
         Block::Centered(_) => "centred".to_owned(),
         Block::Details { summary, .. } => format!("details {:?}", words(summary)),
         Block::BlockQuote(_) => "quote".to_owned(),
-        Block::List(_) => "list".to_owned(),
+        Block::List(list) => {
+            let start = list.start.map(|start| format!(" start={start}"));
+            let loose = (!list.tight).then_some(" loose");
+            format!(
+                "list{}{}",
+                start.unwrap_or_default(),
+                loose.unwrap_or_default()
+            )
+        }
         Block::CodeBlock { code, .. } => format!("code {code:?}"),
         other => format!("{other:?}"),
     }
@@ -318,6 +339,14 @@ fn elements_never_ended_then_stray_end_tags_are_read_in_linear_time() {
 }
 
 #[test]
+fn many_items_and_many_lists_are_read_in_linear_time() {
+    let items = growth(|n| format!("<ul>\n{}</ul>\n", "<li>a\n".repeat(n)), 1_000);
+    assert!(items < 24.0, "items without an end tag: {items}");
+    let lists = growth(|n| "<ol><li>a</li></ol>".repeat(n), 500);
+    assert!(lists < 24.0, "lists: {lists}");
+}
+
+#[test]
 fn many_details_in_one_html_block_are_read_in_linear_time() {
     let growth_one_block = growth(|n| "<details>t</details>".repeat(n), 500);
     assert!(growth_one_block < 24.0, "{growth_one_block}");
@@ -337,13 +366,16 @@ fn a_document_nested_to_the_cap_lays_out_in_both_layouts() {
     let depth = |blocks: &[Block]| {
         let mut depth = 0;
         let mut blocks = blocks;
-        while let Some(Block::Centered(inner) | Block::Details { blocks: inner, .. }) =
-            blocks.first()
-        {
+        loop {
+            blocks = match blocks.first() {
+                Some(Block::Centered(inner) | Block::Details { blocks: inner, .. }) => inner,
+                // A list is as deep as its item is, and the first item holds
+                // the next list.
+                Some(Block::List(list)) => &list.items[0].blocks,
+                _ => return depth,
+            };
             depth += 1;
-            blocks = inner;
         }
-        depth
     };
     let cells = Inputs::new(Capabilities::kitty(60));
     let reading = Inputs {
@@ -361,15 +393,20 @@ fn a_document_nested_to_the_cap_lays_out_in_both_layouts() {
         },
         ..Inputs::new(Capabilities::kitty(60))
     };
-    for (open, end) in [
-        ("<div align=\"center\">", "</div>"),
-        ("<div align=\"center\">\n\n", "</div>\n\n"),
-        ("<details>", "</details>"),
-        ("<details>\n\n", "</details>\n\n"),
+    // A `<ul>` and its `<li>` are two elements open at once, so the same cap
+    // lets a list nest half as deep.
+    for (open, end, levels) in [
+        ("<div align=\"center\">", "</div>", 256),
+        ("<div align=\"center\">\n\n", "</div>\n\n", 256),
+        ("<details>", "</details>", 256),
+        ("<details>\n\n", "</details>\n\n", 256),
+        ("<ul><li>", "</li></ul>", 128),
+        ("<ul>\n<li>\n\n", "</li>\n</ul>\n\n", 128),
+        ("<ol><li>", "</li></ol>", 128),
     ] {
         let source = format!("{}deep\n\n{}", open.repeat(300), end.repeat(300));
         let document = parse(&source);
-        assert_eq!(depth(&document.blocks), 256, "{open:?}");
+        assert_eq!(depth(&document.blocks), levels, "{open:?}");
         for inputs in [&cells, &reading] {
             let laid = driver::laid(Content::Document(&document), inputs);
             assert!(!laid.is_empty(), "{open:?}");

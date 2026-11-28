@@ -41,7 +41,7 @@ pub enum HtmlLevel {
     /// What GitHub shows.
     #[default]
     Github,
-    /// All that kiri reads: `<u>` and `<center>` as well.
+    /// All that kiri reads: `<u>`, `<center>` and task boxes as well.
     All,
 }
 
@@ -76,6 +76,9 @@ pub enum Holds {
     Text,
     /// Blocks, and text between them.
     Blocks,
+    /// Only elements of these names, as a `<ul>` holds only `<li>`s; white
+    /// space and comments are allowed too, and nothing else.
+    Only(&'static [&'static str]),
 }
 
 /// The start tags that end an element whose end tag may be left out.
@@ -85,6 +88,8 @@ pub enum EndedBy {
     Nothing,
     /// The start tag of any block element, as a `<p>` is.
     AnyBlock,
+    /// A start tag of one of these names, as an `<li>` is by another `<li>`.
+    Names(&'static [&'static str]),
 }
 
 /// Whether the start tag of an element centres what it holds.
@@ -172,6 +177,14 @@ pub enum Treatment {
     LineBreak,
     /// An image.
     Image,
+    /// A `<ul>` or `<ol>` whose items are read as a list.
+    List,
+    /// An `<li>`: an item of the list that reads it, and nothing of its own
+    /// anywhere else, where its tags are dim.
+    Item,
+    /// An `<input>`: a task box where a list's item starts with it, at the
+    /// level that reads boxes; elsewhere a tag with no effect.
+    Input,
     /// Not read, and left as source.
     Source,
 }
@@ -248,7 +261,8 @@ const fn phrase(name: &'static str, level: Level, phrase: Phrase) -> Element {
     )
 }
 
-/// A block element of GitHub's list that kiri leaves as source for now.
+/// A block element of GitHub's list that kiri leaves as source for now; a
+/// row that is read overrides its treatment, as `ul`, `ol` and `li` do.
 const fn source_block(name: &'static str) -> Element {
     row(
         name,
@@ -276,7 +290,7 @@ const fn raw(name: &'static str) -> Element {
 /// these, the rows are those that kiri reads, and the rest of the list is
 /// not here yet. The raw-text elements that CommonMark's HTML blocks end
 /// at, `<script>`, `<style>` and `<textarea>`, are rows too, at no level.
-pub static TABLE: [Element; 46] = [
+pub static TABLE: [Element; 47] = [
     Element {
         end_optional: true,
         ended_by: EndedBy::AnyBlock,
@@ -376,6 +390,14 @@ pub static TABLE: [Element; 46] = [
         Holds::Nothing,
         Treatment::Source,
     ),
+    // A task box, read at the level "all" where an item starts with it.
+    row(
+        "input",
+        Kind::Void,
+        Level::All,
+        Holds::Nothing,
+        Treatment::Input,
+    ),
     // The other block elements of GitHub's list, which end an open `<p>` and
     // are left as source for now.
     source_block("blockquote"),
@@ -397,10 +419,20 @@ pub static TABLE: [Element; 46] = [
         Holds::Nothing,
         Treatment::Source,
     ),
-    source_block("ol"),
-    source_block("ul"),
+    Element {
+        holds: Holds::Only(&["li"]),
+        treatment: Treatment::List,
+        ..source_block("ol")
+    },
+    Element {
+        holds: Holds::Only(&["li"]),
+        treatment: Treatment::List,
+        ..source_block("ul")
+    },
     Element {
         end_optional: true,
+        ended_by: EndedBy::Names(&["li"]),
+        treatment: Treatment::Item,
         ..source_block("li")
     },
     source_block("table"),
@@ -432,93 +464,4 @@ pub(super) fn is_centred(tag: &Tag) -> bool {
             .trim_matches(|c: char| c.is_ascii_whitespace())
             .eq_ignore_ascii_case("center")
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_row_has_a_lower_case_name_of_its_own() {
-        for (at, row) in TABLE.iter().enumerate() {
-            assert_eq!(row.name, row.name.to_ascii_lowercase());
-            assert!(
-                TABLE[..at].iter().all(|other| other.name != row.name),
-                "{} twice",
-                row.name
-            );
-        }
-    }
-
-    #[test]
-    fn the_kind_of_a_row_says_what_it_holds() {
-        for row in &TABLE {
-            assert_eq!(
-                matches!(row.kind, Kind::Void | Kind::VoidBlock),
-                row.holds == Holds::Nothing,
-                "{}",
-                row.name
-            );
-        }
-    }
-
-    #[test]
-    fn only_the_rows_that_say_so_are_headings_phrases_wrappers_and_source() {
-        let names = |keep: fn(&Element) -> bool| -> Vec<&str> {
-            TABLE
-                .iter()
-                .filter(|row| keep(row))
-                .map(|row| row.name)
-                .collect()
-        };
-        assert_eq!(
-            names(|row| matches!(row.treatment, Treatment::Heading(_))),
-            ["h1", "h2", "h3", "h4", "h5", "h6"]
-        );
-        assert_eq!(
-            names(|row| matches!(row.treatment, Treatment::Wrapper(_) | Treatment::Details)),
-            ["p", "div", "center", "details"]
-        );
-        assert_eq!(
-            names(|row| matches!(row.treatment, Treatment::Phrase(_))),
-            [
-                "kbd", "mark", "sub", "sup", "b", "strong", "i", "em", "s", "del", "code", "u",
-                "span", "ins", "strike", "a", "picture"
-            ]
-        );
-        // The block elements left as source for now.
-        assert_eq!(
-            names(|row| row.treatment == Treatment::Source
-                && matches!(row.kind, Kind::Block | Kind::VoidBlock)),
-            [
-                "blockquote",
-                "dl",
-                "dt",
-                "dd",
-                "figure",
-                "figcaption",
-                "hr",
-                "ol",
-                "ul",
-                "li",
-                "table"
-            ]
-        );
-        assert_eq!(
-            names(|row| row.kind == Kind::RawText),
-            ["pre", "script", "style", "textarea"]
-        );
-        assert_eq!(heading_level("h3"), Some(3));
-        assert_eq!(heading_level("h7"), None);
-        assert_eq!(heading_level("hr"), None);
-    }
-
-    #[test]
-    fn u_and_center_are_only_at_the_level_all() {
-        let level = |name| get(name).map(|row| row.level);
-        assert_eq!(level("u"), Some(Level::All));
-        assert_eq!(level("center"), Some(Level::All));
-        assert_eq!(level("div"), Some(Level::Github));
-        assert_eq!(level("script"), Some(Level::Neither));
-    }
 }

@@ -72,6 +72,56 @@ its box. In a numbered list the number stays and the box follows it.
 1. [x] A numbered task, done
 2. [ ] A numbered task, open
 
+## HTML lists
+
+A list written in HTML is drawn as a Markdown list, with the same bullets,
+numbers and indents. The outer list has bullets and the list inside it is
+numbered from 3. The items Third and Fourth have no `</li>` and look like the
+others, and so does the list in the details, which is numbered from 1.
+
+<ul>
+  <li>An item with an end tag</li>
+  <li>An item with a list inside it
+    <ol start="3">
+      <li>Third
+      <li>Fourth
+    </ol>
+  </li>
+  <li>The last item</li>
+</ul>
+
+<details>
+<summary>A list in a details</summary>
+
+<ol>
+  <li>First</li>
+  <li>Second</li>
+</ol>
+
+</details>
+
+A `<center>` in an item does not loosen the list. At the default level the
+tags of `<center>` show dim, so the text is not centred, and the two items sit
+close together, as the Markdown list `- <center>a</center>` then `- b` does.
+
+<ul>
+  <li><center>A centred item</center></li>
+  <li>The item after it</li>
+</ul>
+
+### Task boxes in HTML
+
+With `html = "all"` in the `[markdown]` table of the configuration file, an
+item that starts with a checkbox is a task item, as in the task lists above:
+☑ for the ticked box, ☐ for the open one, in place of the bullet, and no tag
+is shown. At the default level the boxes are muted tags, as in the source.
+
+<ul>
+  <li><input type="checkbox" checked disabled> A finished task</li>
+  <li><input type="checkbox" disabled> An open task</li>
+  <li>A box after the text <input type="checkbox"> stays a tag</li>
+</ul>
+
 ## Block quotes
 
 > ### A heading in a quote

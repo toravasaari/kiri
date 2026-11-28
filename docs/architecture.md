@@ -25,9 +25,9 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   of the model, and `inline.rs` joins the tags of running text into inlines.
   Both decide by the table of elements (`elements.rs`, one row for each
   element) and by the setting `html`: GitHub's level, the default, or `all`,
-  which also reads `<u>` and `<center>`. An `<img>` in HTML is the same
-  image as one in Markdown. A tag with no effect at the level, one kiri does
-  not know, or a broken one is drawn dim, or left out with
+  which also reads `<u>`, `<center>` and task boxes. An `<img>` in HTML is the
+  same image as one in Markdown. A tag with no effect at the level, one kiri
+  does not know, or a broken one is drawn dim, or left out with
   `html_tags = "hide"`, and what it holds is read as it would be without it.
   Front matter at the start of a Markdown file is split off in
   `src/typeset/parse/front_matter.rs` before comrak sees the text and read

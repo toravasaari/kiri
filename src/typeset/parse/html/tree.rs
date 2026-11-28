@@ -10,8 +10,10 @@
 //!
 //! The rules, for a stack of open elements:
 //!
-//! 1. A start tag first ends the open elements that its row says it ends
-//!    (a `<p>` by the start of any block), then opens its own element.
+//! 1. A start tag first ends the open elements that their rows say it ends
+//!    (a `<p>` by the start of any block, an `<li>` by an `<li>`), from the
+//!    top of the stack down to one that it does not end, then opens its own
+//!    element.
 //! 2. An end tag ends the nearest open element of its name. The elements
 //!    open above that one end with it: one whose end tag may be left out is
 //!    whole, and any other becomes an unpaired start tag, but only when no
@@ -298,10 +300,13 @@ impl Builder {
     fn start(&mut self, tag: Tag, at: Span) {
         let index = elements::index(&tag.name);
         // The open elements that this start tag ends: a `<p>` by any block,
-        // a void one such as `<hr>` too.
-        if index.is_some_and(|index| starts_block(&TABLE[index])) {
-            self.end_open_p();
-        }
+        // a void one such as `<hr>` too, an `<li>` by another `<li>`.
+        let block = index.is_some_and(|index| starts_block(&TABLE[index]));
+        self.end_open(|by| match by {
+            EndedBy::Nothing => false,
+            EndedBy::AnyBlock => block,
+            EndedBy::Names(names) => names.contains(&tag.name.as_str()),
+        });
         let Some(index) = index.filter(|&i| nests(&TABLE[i])) else {
             return self.leaf(at, NodeKind::Tag { tag, end: false });
         };
@@ -363,16 +368,18 @@ impl Builder {
 
     /// Rule 3.
     fn markdown(&mut self, piece: usize) {
-        self.end_open_p();
+        self.end_open(|by| by == EndedBy::AnyBlock);
         self.leaf(Span::none(piece), NodeKind::Markdown);
     }
 
-    /// Ends the open elements that the start of a block ends: a `<p>`.
-    fn end_open_p(&mut self) {
+    /// Ends the elements open last whose end tag may be left out and whose
+    /// row says that `ended` is true of what ends them, from the top of the
+    /// stack down to the first that is not.
+    fn end_open(&mut self, ended: impl Fn(EndedBy) -> bool) {
         while let Some(top) = self.top()
             && let NodeKind::Element(open) = &self.nodes[top].kind
             && open.row.end_optional
-            && open.row.ended_by == EndedBy::AnyBlock
+            && ended(open.row.ended_by)
         {
             self.pop(Closing::Implied);
         }

@@ -12,11 +12,12 @@
 //! - A Markdown block is itself.
 //! - A block element is what its row says: a `<p>`, `<div>` or `<center>`
 //!   that centres is a centred block, one that does not is transparent, a
-//!   `<details>` with its `<summary>` is a details, `<h1>` to `<h6>` a heading
-//!   and `<pre>` a code block. An element that holds what its row does not
-//!   allow shows its two tags as dim tags, and what it holds is read on its
-//!   own. An element that is source for now is its source as written when
-//!   no Markdown block is in it, and else its dim tags and what it holds.
+//!   `<details>` with its `<summary>` is a details, `<h1>` to `<h6>` a heading,
+//!   `<pre>` a code block, and a `<ul>` or `<ol>` of items a list (`lists.rs`).
+//!   An `<li>` that no list reads has its tags dim and what it holds is read
+//!   on its own; so does an element that holds what its row does not allow.
+//!   An element that is source for now is its source as written when no
+//!   Markdown block is in it, and else its dim tags and what it holds.
 //! - An unpaired tag is a dim tag, a block of its own that cuts a run of
 //!   text, and what an unpaired element holds is read as what the element
 //!   round it holds.
@@ -172,16 +173,16 @@ pub(in crate::typeset::parse) fn read(
 /// that HTML block inside it are placed inside it.
 type Round = Option<(usize, Sourcepos)>;
 
-struct Reader<'t> {
+pub(super) struct Reader<'t> {
     /// The level of HTML that is read.
-    level: HtmlLevel,
+    pub(super) level: HtmlLevel,
     /// What becomes of the tags that have no effect.
-    tags: HtmlTags,
-    tree: &'t Tree,
+    pub(super) tags: HtmlTags,
+    pub(super) tree: &'t Tree,
     html: &'t [Option<HtmlBlock<'t>>],
     /// The blocks of each block of Markdown, taken when it is read.
     markdown: Vec<Option<Vec<(Block, Position)>>>,
-    children: Vec<Vec<usize>>,
+    pub(super) children: Vec<Vec<usize>>,
     last: Vec<usize>,
     /// The last byte in each node, as `read` makes it.
     extent: Vec<(usize, usize)>,
@@ -415,12 +416,12 @@ impl<'t> Reader<'t> {
     }
 
     /// Whether `node` holds nothing but white space.
-    fn holds_nothing(&self, node: usize) -> bool {
+    pub(super) fn holds_nothing(&self, node: usize) -> bool {
         self.children[node].iter().all(|&child| self.blank(child))
     }
 
     /// Whether `node` is white space in a run of text.
-    fn blank(&self, node: usize) -> bool {
+    pub(super) fn blank(&self, node: usize) -> bool {
         matches!(self.tree.nodes[node].kind, NodeKind::Text)
             && self
                 .written(&self.tree.nodes[node].at)
@@ -429,24 +430,37 @@ impl<'t> Reader<'t> {
     }
 
     /// Whether `node` holds no more than its row allows: an element that holds
-    /// text holds no block.
+    /// text holds no block, and a list holds only its items, with white space
+    /// and comments between them.
     fn holds_allowed(&self, node: usize, open: &Opened) -> bool {
-        open.row.holds != Holds::Text
-            || self.children[node]
-                .iter()
-                .all(|&child| match &self.tree.nodes[child].kind {
-                    NodeKind::Text
-                    | NodeKind::RawTag { .. }
-                    | NodeKind::Comment
-                    | NodeKind::Tag { .. } => true,
-                    NodeKind::Element(inner) if self.is_summary_heading(open, inner, child) => true,
-                    NodeKind::Element(inner) => {
-                        inner.row.kind == Kind::RawText
-                            && inner.row.treatment == Treatment::Source
-                            && self.whole_in_one(child, inner).is_some()
-                    }
-                    _ => false,
-                })
+        match open.row.holds {
+            Holds::Nothing | Holds::Blocks => true,
+            Holds::Only(names) => self.children[node].iter().all(|&child| {
+                self.blank(child)
+                    || matches!(self.tree.nodes[child].kind, NodeKind::Comment)
+                    || matches!(&self.tree.nodes[child].kind,
+                        NodeKind::Element(inner) if names.contains(&inner.row.name))
+            }),
+            Holds::Text => {
+                self.children[node]
+                    .iter()
+                    .all(|&child| match &self.tree.nodes[child].kind {
+                        NodeKind::Text
+                        | NodeKind::RawTag { .. }
+                        | NodeKind::Comment
+                        | NodeKind::Tag { .. } => true,
+                        NodeKind::Element(inner) if self.is_summary_heading(open, inner, child) => {
+                            true
+                        }
+                        NodeKind::Element(inner) => {
+                            inner.row.kind == Kind::RawText
+                                && inner.row.treatment == Treatment::Source
+                                && self.whole_in_one(child, inner).is_some()
+                        }
+                        _ => false,
+                    })
+            }
+        }
     }
 
     /// Whether `inner` at `node` is a whole heading in the summary `open`,
@@ -541,6 +555,14 @@ impl<'t> Reader<'t> {
             // A `<summary>` that is not the summary of a `<details>` has no
             // effect: its tags are dim and its text is read on its own.
             Treatment::Summary => self.dissolve(node, open, round, out),
+            // An `<li>` that no list reads, such as one in a `<div>`, has no
+            // effect either.
+            Treatment::Item => self.dissolve(node, open, round, out),
+            Treatment::List => {
+                if !self.list(node, open, position, out) {
+                    self.as_written(node, open, round, out);
+                }
+            }
             // The elements that are source for now.
             _ => self.as_written(node, open, round, out),
         }
@@ -573,7 +595,12 @@ impl<'t> Reader<'t> {
     }
 
     /// The blocks that `node` holds, but for the node `skip`.
-    fn inside(&mut self, node: usize, skip: Option<usize>, round: Round) -> Vec<(Block, Position)> {
+    pub(super) fn inside(
+        &mut self,
+        node: usize,
+        skip: Option<usize>,
+        round: Round,
+    ) -> Vec<(Block, Position)> {
         let mut blocks = Vec::new();
         let mut run = Vec::new();
         self.read_children_but(node, skip, round, &mut blocks, &mut run);
