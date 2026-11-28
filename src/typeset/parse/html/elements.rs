@@ -182,6 +182,9 @@ pub enum Treatment {
     /// An `<li>`: an item of the list that reads it, and nothing of its own
     /// anywhere else, where its tags are dim.
     Item,
+    /// An `<input>`: a task box where a list's item starts with it, at the
+    /// level that reads boxes; elsewhere a tag with no effect.
+    Input,
     /// Not read, and left as source.
     Source,
 }
@@ -287,7 +290,7 @@ const fn raw(name: &'static str) -> Element {
 /// these, the rows are those that kiri reads, and the rest of the list is
 /// not here yet. The raw-text elements that CommonMark's HTML blocks end
 /// at, `<script>`, `<style>` and `<textarea>`, are rows too, at no level.
-pub static TABLE: [Element; 46] = [
+pub static TABLE: [Element; 47] = [
     Element {
         end_optional: true,
         ended_by: EndedBy::AnyBlock,
@@ -386,6 +389,14 @@ pub static TABLE: [Element; 46] = [
         Level::Github,
         Holds::Nothing,
         Treatment::Source,
+    ),
+    // A task box, read at the level "all" where an item starts with it.
+    row(
+        "input",
+        Kind::Void,
+        Level::All,
+        Holds::Nothing,
+        Treatment::Input,
     ),
     // The other block elements of GitHub's list, which end an open `<p>` and
     // are left as source for now.
@@ -526,6 +537,7 @@ mod tests {
             names(|row| matches!(row.treatment, Treatment::List | Treatment::Item)),
             ["ol", "ul", "li"]
         );
+        assert_eq!(names(|row| row.treatment == Treatment::Input), ["input"]);
         assert_eq!(
             names(|row| row.kind == Kind::RawText),
             ["pre", "script", "style", "textarea"]
