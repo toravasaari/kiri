@@ -2620,6 +2620,18 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "an item whose text is centred is tight at the level all too",
+        source: "<ul>\n<li><center>a</center></li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..49
+              item
+                centred @2=9..27
+                  p "a" @2~9..27
+              item
+                p "b" @3~0..49
+        "#,
+    },
+    Row {
         name: "an ol with start \"5\" starts from 5",
         source: "<ol start=\"5\">\n<li>a</li>\n</ol>\n",
         blocks: r#"
