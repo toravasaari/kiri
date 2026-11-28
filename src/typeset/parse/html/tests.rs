@@ -653,9 +653,16 @@ fn parse_differs_from_a_browser_as_pinned() {
     insta::assert_snapshot!(browser::compare(browser::kiri));
 }
 
+/// The corpus has lists in it, so that no difference is not for want of them.
+#[test]
+fn the_corpus_of_the_comparison_has_lists() {
+    let count = browser::with_lists();
+    assert!(count >= 150, "{count} of 600 documents have a list");
+}
+
 #[test]
 fn the_comparison_maps_a_browsers_tree_onto_shapes() {
-    use browser::Shape::{Centred, Details, Heading, Paragraph};
+    use browser::Shape::{Centred, Details, Heading, List, Paragraph};
     let p = |text: &str| Paragraph(text.to_owned());
     // A plain `<div>` is transparent, a plain `<p>` a paragraph, and a `<p>`
     // ends at the start of a block.
@@ -682,6 +689,15 @@ fn the_comparison_maps_a_browsers_tree_onto_shapes() {
             Details("S".into(), vec![p("t")]),
             Details("Details".into(), vec![p("u")])
         ]
+    );
+    // A list is its items, loose or tight alike, and an `<ol>` has the number
+    // a browser gives it.
+    assert_eq!(
+        browser::browser("<ul><li>a<ol start=7><li><p>b</p></ul>"),
+        [List(
+            None,
+            vec![vec![p("a"), List(Some(7), vec![vec![p("b")]])]]
+        )]
     );
 }
 

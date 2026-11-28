@@ -2,7 +2,7 @@
 //!
 //! comrak writes the HTML of a document, a browser-grade parser (`scraper`,
 //! over html5ever) builds its tree, and that tree is mapped onto the shapes
-//! kiri reads: centred blocks, `<details>`, headings and paragraphs. What kiri
+//! kiri reads: centred blocks, `<details>`, lists, headings and paragraphs. What kiri
 //! reads, from `parse`, is mapped onto the same shapes. Only structure and
 //! plain text are compared, not inline markup: comrak writes `<strong>` where
 //! the outline has `**`, and a Markdown paragraph is a `<p>` of comrak's.
@@ -12,7 +12,13 @@
 //! differs from a browser on purpose, they stay clear of it: a tag of a block
 //! element is always at the start of a line, so that comrak reads it as an HTML
 //! block and not as inline HTML in a paragraph; there is no broken HTML but
-//! the `</p>` that may be left out; and the text has no Markdown.
+//! the `</p>` and `</li>` that may be left out; and the text has no Markdown
+//! but the lists, which are written as Markdown or as `<ul>` and `<ol>`, with
+//! a blank line round the Markdown ones. A list holds only items, an item only
+//! text, a `<p>` and lists, and a list has at least one item, as the plan of
+//! the lists says: text or another element directly in a list, a stray end
+//! tag in one, an `<li>` after an open `<div>` in an item, more than 128
+//! nested lists and lists in a table are where kiri differs on purpose.
 
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -30,6 +36,9 @@ pub enum Shape {
     /// The text of the summary, and the blocks.
     Details(String, Vec<Shape>),
     Heading(u8, String),
+    /// The number of the first item of an `<ol>`, `None` for a `<ul>`, and
+    /// the shapes in each item. Whether the list is tight is not compared.
+    List(Option<u64>, Vec<Vec<Shape>>),
     Paragraph(String),
     /// Kiri only: a block left as source, the name of the tag it starts with
     /// and the text outside its tags.
@@ -167,6 +176,26 @@ fn walk(
                 let summary = summary.unwrap_or_else(|| "Details".to_owned());
                 out.push(Shape::Details(summary, shapes));
             }
+            "ul" | "ol" => {
+                flush(run, out);
+                let start = (name == "ol").then(|| {
+                    let start = inner.value().attr("start");
+                    start
+                        .and_then(|start| start.trim().parse().ok())
+                        .unwrap_or(1)
+                });
+                let items = (inner.children().filter_map(ElementRef::wrap))
+                    .filter(|item| item.value().name() == "li")
+                    .map(|item| {
+                        let mut shapes = Vec::new();
+                        let mut own = String::new();
+                        walk(item, None, &mut shapes, &mut own);
+                        flush(&mut own, &mut shapes);
+                        shapes
+                    })
+                    .collect();
+                out.push(Shape::List(start, items));
+            }
             // Other elements, such as `<b>`, are the text in them.
             _ => walk(inner, None, out, run),
         }
@@ -238,6 +267,12 @@ fn kiri_blocks(blocks: &[Block]) -> Vec<Shape> {
                 out.push(Shape::Heading(*level, plain(&inline_text(content))));
             }
             Block::Centered(inner) => out.extend(centred(kiri_blocks(inner))),
+            Block::List(list) => out.push(Shape::List(
+                list.start,
+                (list.items.iter())
+                    .map(|item| kiri_blocks(&item.blocks))
+                    .collect(),
+            )),
             Block::Details { summary, blocks } => out.push(Shape::Details(
                 plain(&inline_text(summary)),
                 kiri_blocks(blocks),
@@ -338,8 +373,78 @@ impl Generator {
         ["", " align=\"center\""][self.rng.below(2) as usize]
     }
 
+    /// A number of 1 to 9 digits, from 1.
+    fn number(&mut self) -> String {
+        let digits = 1 + self.rng.below(9);
+        let mut number = (1 + self.rng.below(9)).to_string();
+        for _ in 1..digits {
+            number.push_str(&self.rng.below(10).to_string());
+        }
+        number
+    }
+
+    /// A `<ul>` or an `<ol>` of items, with or without `</li>`.
+    fn html_list(&mut self, depth: usize) {
+        let name = ["ul", "ol"][self.rng.below(2) as usize];
+        let start = match name == "ol" && self.rng.below(2) == 0 {
+            true => format!(" start=\"{}\"", self.number()),
+            false => String::new(),
+        };
+        self.tag(&format!("<{name}{start}>"));
+        for _ in 0..1 + self.rng.below(3) {
+            self.tag("<li>");
+            match self.rng.below(6) {
+                0..=1 => self.text(),
+                2 | 3 => {
+                    self.text();
+                    if depth < 3 {
+                        self.html_list(depth + 1);
+                        if self.rng.below(3) == 0 {
+                            self.text();
+                        }
+                    }
+                }
+                4 => {
+                    self.tag("<p>");
+                    self.text();
+                    if self.rng.below(4) > 0 {
+                        self.tag("</p>");
+                    }
+                }
+                _ if depth < 3 => self.html_list(depth + 1),
+                _ => self.text(),
+            }
+            // An `<li>` may leave out its end tag.
+            if self.rng.below(3) > 0 {
+                self.tag("</li>");
+            }
+        }
+        self.tag(&format!("</{name}>"));
+    }
+
+    /// A list of Markdown, with a blank line before and after, and bullets
+    /// in the items of it sometimes.
+    fn markdown_list(&mut self) {
+        let ordered = self.rng.below(2) == 0;
+        let first = self.number();
+        self.out.push_str("\n\n");
+        for at in 0..1 + self.rng.below(3) {
+            let marker = match ordered {
+                true => format!("{}. ", first.parse::<u64>().unwrap() + at),
+                false => "- ".to_owned(),
+            };
+            let word = self.word();
+            writeln!(self.out, "{marker}{word}").unwrap();
+            if self.rng.below(3) == 0 {
+                let word = self.word();
+                writeln!(self.out, "{}- {word}", " ".repeat(marker.len())).unwrap();
+            }
+        }
+        self.out.push('\n');
+    }
+
     fn block(&mut self, depth: usize) {
-        match self.rng.below(if depth < 3 { 11 } else { 6 }) {
+        match self.rng.below(if depth < 3 { 14 } else { 6 }) {
             0..=2 => self.text(),
             3 => {
                 self.separate(true);
@@ -366,7 +471,7 @@ impl Generator {
                 self.tag(&format!("</h{level}>"));
                 self.tight = false;
             }
-            6..=8 => {
+            6..=7 => {
                 let (name, align) = match self.rng.below(4) {
                     0 => ("center", ""),
                     _ => ("div", self.align()),
@@ -375,6 +480,8 @@ impl Generator {
                 self.blocks(depth + 1);
                 self.tag(&format!("</{name}>"));
             }
+            10 | 11 => self.html_list(depth),
+            12 | 13 => self.markdown_list(),
             _ => {
                 self.tag("<details>");
                 if self.rng.below(3) > 0 {
@@ -424,6 +531,8 @@ struct Facts {
     centred: BTreeMap<String, usize>,
     details: Vec<String>,
     headings: Vec<(u8, String)>,
+    /// The first number of each list.
+    lists: Vec<Option<u64>>,
     /// The tag that the first block left as source starts with.
     source: Option<String>,
 }
@@ -435,6 +544,12 @@ fn facts(shapes: &[Shape], centred: bool, into: &mut Facts) {
             Shape::Details(summary, inner) => {
                 into.details.push(summary.clone());
                 facts(inner, false, into);
+            }
+            Shape::List(start, items) => {
+                into.lists.push(*start);
+                for item in items {
+                    facts(item, centred, into);
+                }
             }
             Shape::Heading(level, text) => {
                 into.headings.push((*level, text.clone()));
@@ -475,6 +590,8 @@ fn why(browser: &[Shape], kiri: &[Shape]) -> String {
         "words centred or not centred".to_owned()
     } else if b.details != k.details {
         "details lost, made or cut".to_owned()
+    } else if b.lists != k.lists {
+        "lists lost, made, or numbered otherwise".to_owned()
     } else if b.headings != k.headings {
         "headings lost or made".to_owned()
     } else {
@@ -504,6 +621,23 @@ pub fn compare(reading: fn(&str) -> Vec<Shape>) -> String {
         writeln!(report, "  {count:4}  {reason} (first: seed {first})").unwrap();
     }
     report
+}
+
+/// Whether `shapes` hold a list, at any depth.
+fn has_list(shapes: &[Shape]) -> bool {
+    shapes.iter().any(|shape| match shape {
+        Shape::List(..) => true,
+        Shape::Centred(inner) | Shape::Details(_, inner) => has_list(inner),
+        _ => false,
+    })
+}
+
+/// How many documents of the corpus have a list in them, as a browser reads
+/// them: the count that tells that no difference is not for want of lists.
+pub fn with_lists() -> usize {
+    (0..DOCUMENTS)
+        .filter(|seed| has_list(&browser(&comrak_html(&document(*seed)))))
+        .count()
 }
 
 /// Whether `source` reads as a browser reads it.
