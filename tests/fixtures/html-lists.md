@@ -57,6 +57,13 @@ Its second paragraph, in Markdown.
 
 </details>
 
+<ul>
+  <li><input type="checkbox" checked> A ticked task</li>
+  <li><input type="checkbox"> An open task</li>
+  <li><input type="radio" checked> A radio, which has no effect</li>
+  <li>Text, then <input type="checkbox"> a box with no effect</li>
+</ul>
+
 - A Markdown item that holds an HTML list:
 
   <ul>

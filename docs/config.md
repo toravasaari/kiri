@@ -124,8 +124,8 @@ render_errors = "both"
 
 # How the HTML in Markdown is read; see HTML in Markdown below.
 [markdown]
-# Which HTML to read: "github" (what GitHub shows) or "all" (`<u>` and
-# `<center>` as well).
+# Which HTML to read: "github" (what GitHub shows) or "all" (`<u>`,
+# `<center>` and task boxes as well).
 html = "github"
 # What becomes of a tag that has no effect: "dim" shows it dim, "hide"
 # leaves it out.
@@ -936,7 +936,8 @@ file, with no flag and no environment variable:
 
 - `github`, the default, reads what GitHub shows of HTML. `<u>` and
   `<center>` are not among them.
-- `all` reads `<u>` (underlined) and `<center>` (centred) as well.
+- `all` reads `<u>` (underlined), `<center>` (centred) and the `<input>` task
+  box that starts a list item, as well.
 
 A tag that has no effect is one outside the level (`<center>` at `github`),
 one that kiri does not know (`<video>`), and one that is broken: never

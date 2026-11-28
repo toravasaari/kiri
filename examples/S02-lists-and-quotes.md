@@ -100,6 +100,19 @@ others, and so does the list in the details, which is numbered from 1.
 
 </details>
 
+### Task boxes in HTML
+
+With `html = "all"` in the `[markdown]` table of the configuration file, an
+item that starts with a checkbox is a task item, as in the task lists above:
+☑ for the ticked box, ☐ for the open one, in place of the bullet, and no tag
+is shown. At the default level the boxes are muted tags, as in the source.
+
+<ul>
+  <li><input type="checkbox" checked disabled> A finished task</li>
+  <li><input type="checkbox" disabled> An open task</li>
+  <li>A box after the text <input type="checkbox"> stays a tag</li>
+</ul>
+
 ## Block quotes
 
 > ### A heading in a quote
