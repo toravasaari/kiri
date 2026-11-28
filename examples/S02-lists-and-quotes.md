@@ -72,6 +72,34 @@ its box. In a numbered list the number stays and the box follows it.
 1. [x] A numbered task, done
 2. [ ] A numbered task, open
 
+## HTML lists
+
+A list written in HTML is drawn as a Markdown list, with the same bullets,
+numbers and indents. The outer list has bullets and the list inside it is
+numbered from 3. The items Third and Fourth have no `</li>` and look like the
+others, and so does the list in the details, which is numbered from 1.
+
+<ul>
+  <li>An item with an end tag</li>
+  <li>An item with a list inside it
+    <ol start="3">
+      <li>Third
+      <li>Fourth
+    </ol>
+  </li>
+  <li>The last item</li>
+</ul>
+
+<details>
+<summary>A list in a details</summary>
+
+<ol>
+  <li>First</li>
+  <li>Second</li>
+</ol>
+
+</details>
+
 ## Block quotes
 
 > ### A heading in a quote

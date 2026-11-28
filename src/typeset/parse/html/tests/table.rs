@@ -108,6 +108,14 @@ fn the_shapes_of_real_readmes_read_as_they_do_today() {
     insta::assert_snapshot!(outline(source));
 }
 
+/// The shapes of HTML lists (`tests/fixtures/html-lists.md`) as `parse`
+/// reads them: the whole outline is the snapshot, to be read by a person.
+#[test]
+fn the_shapes_of_html_lists_read_as_lists_or_as_dim_tags() {
+    let source = include_str!("../../../../../tests/fixtures/html-lists.md");
+    insta::assert_snapshot!(outline(source));
+}
+
 /// How the time to parse `make(n)` grows from `n` to eight times `n`
 /// (`crate::testing::growth`).
 fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
