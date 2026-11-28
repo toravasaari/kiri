@@ -47,10 +47,10 @@ list loose @39=692..815
     p "A short item" @47~782..815
 details "A list in a details" @50=817..1002
   list start=1 @53=867..990
-    item [x]
-      p "Done" @54~867..990
-    item [ ]
-      p "Still to do" @55~867..990
+    item
+      p "<input type=\"checkbox\" checked disabled> Done" @54~867..990
+    item
+      p "<input type=\"checkbox\" disabled> Still to do" @55~867..990
 list loose @60=1004..1113
   item
     p "A Markdown item that holds an HTML list:" @60=1006..1046

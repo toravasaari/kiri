@@ -13,12 +13,8 @@
 //!   an item with its nested lists is tight, as `- a` with `  - b` is.
 //! - The places are those of a Markdown list: the list's own, and for each
 //!   item no place of its own, only the places of its blocks.
-//! - An item that starts with an `<input type="checkbox">` is a task item,
-//!   ticked when the box is `checked`, at the level that reads boxes; the
-//!   tag is no text of the item. Elsewhere a box is a tag with no effect.
 
 use super::blocks::Reader;
-use super::elements::{self, Treatment};
 use super::tree::{NodeKind, Opened};
 use crate::typeset::model::{Block, List, ListItem};
 use crate::typeset::parse::Position;
@@ -49,11 +45,10 @@ impl Reader<'_> {
         for item in items {
             // What an item holds is placed in its HTML blocks, as what a
             // `<details>` holds is.
-            let task = self.task_box(item);
-            let blocks = self.inside(item, task.map(|(node, _)| node), None);
+            let blocks = self.inside(item, None, None);
             let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
             read.push(ListItem {
-                checked: task.map(|(_, ticked)| ticked),
+                checked: None,
                 blocks,
             });
             places.push(Position { at: None, children });
@@ -76,31 +71,6 @@ impl Reader<'_> {
             },
         ));
         true
-    }
-
-    /// The task box that starts the item `item`: its first content that is
-    /// neither white space nor a comment is an `<input>` of `type` checkbox,
-    /// in any case, at a level that reads boxes. Its node, and whether its
-    /// tag is `checked`.
-    fn task_box(&self, item: usize) -> Option<(usize, bool)> {
-        let row = elements::get("input")?;
-        if row.treatment != Treatment::Input || !row.level.is_read_at(self.level) {
-            return None;
-        }
-        let first = self.children[item].iter().copied().find(|&child| {
-            !self.blank(child) && !matches!(self.tree.nodes[child].kind, NodeKind::Comment)
-        })?;
-        match &self.tree.nodes[first].kind {
-            NodeKind::Tag { tag, end: false }
-                if tag.name == "input"
-                    && tag
-                        .get("type")
-                        .is_some_and(|kind| kind.eq_ignore_ascii_case("checkbox")) =>
-            {
-                Some((first, tag.get("checked").is_some()))
-            }
-            _ => None,
-        }
     }
 }
 

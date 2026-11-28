@@ -2812,98 +2812,15 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "the demo: an ol of items with task boxes in a details, at all",
+        name: "the demo: an ol of items with checkboxes in a details, the inputs dim tags",
         source: "<details>\n<summary>Todo</summary>\n<ol>\n<li><input type=\"checkbox\" checked disabled> one</li>\n<li><input type=\"checkbox\"> two</li>\n</ol>\n</details>\n",
         blocks: r#"
             details "Todo" @1=0..146
               list start=1 @3=34..135
-                item [x]
-                  p "one" @4~0..146
-                item [ ]
-                  p "two" @5~0..146
-        "#,
-    },
-    Row {
-        name: "an unchecked task box is a box, and its tag is not read as text",
-        source: "<ul>\n<li><input type=\"checkbox\"> a</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..45
-              item [ ]
-                p "a" @2~0..45
-        "#,
-    },
-    Row {
-        name: "checked with a value, and the type in upper case, is a ticked box",
-        source: "<ul>\n<li><input type=\"checkbox\" checked=\"checked\"> a</li>\n<li><input TYPE=\"CHECKBOX\" checked> b</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..106
-              item [x]
-                p "a" @2~0..106
-              item [x]
-                p "b" @3~0..106
-        "#,
-    },
-    Row {
-        name: "a radio is no task box: its tag is a dim tag in the item",
-        source: "<ul>\n<li><input type=\"radio\" checked> a</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..50
-              item
-                p "<input type=\"radio\" checked> a" @2~0..50
-        "#,
-    },
-    Row {
-        name: "a box after text in an item is a dim tag, as in a Markdown item",
-        source: "<ul>\n<li>a <input type=\"checkbox\"> b</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..47
-              item
-                p "a <input type=\"checkbox\"> b" @2~0..47
-        "#,
-    },
-    Row {
-        name: "a box in a p in an item is a dim tag: the box is the item's first content only",
-        source: "<ul>\n<li><p><input type=\"checkbox\"> a</p></li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..52
-              item
-                p "<input type=\"checkbox\"> a" @2~0..52
-        "#,
-    },
-    Row {
-        name: "a box outside a list is a dim tag",
-        source: "<input type=\"checkbox\" checked> a\n",
-        blocks: r#"
-            p "<input type=\"checkbox\" checked> a" @1=0..33
-        "#,
-    },
-    Row {
-        name: "a box in an item of a nested list is a task box, and the outer item keeps its text",
-        source: "<ul>\n<li>a\n<ul>\n<li><input type=\"checkbox\" checked> b</li>\n</ul>\n</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..76
-              item
-                p "a" @2~0..76
-                list @3=11..64
-                  item [x]
-                    p "b" @4~0..76
-        "#,
-    },
-    Row {
-        name: "a task box with nothing after it is an item with no text",
-        source: "<ul>\n<li><input type=\"checkbox\" checked></li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..51
-              item [x]
-        "#,
-    },
-    Row {
-        name: "white space and a comment before the box do not stop it",
-        source: "<ul>\n<li>\n<!-- c -->\n<input type=\"checkbox\"> a</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..57
-              item [ ]
-                p "a" @4~0..57
+                item
+                  p "<input type=\"checkbox\" checked disabled> one" @4~0..146
+                item
+                  p "<input type=\"checkbox\"> two" @5~0..146
         "#,
     },
     Row {
@@ -3096,27 +3013,6 @@ pub const GITHUB_ROWS: &[Row] = &[
         source: "<p>A <u>b</u> c</p>\n",
         blocks: r#"
             p "A <u>b</u> c" @1=0..19
-        "#,
-    },
-    Row {
-        name: "a task box is a dim tag at GitHub's level: its list has no input",
-        source: "<ul>\n<li><input type=\"checkbox\" checked> a</li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..53
-              item
-                p "<input type=\"checkbox\" checked> a" @2~0..53
-        "#,
-    },
-    Row {
-        name: "the demo at GitHub's level: the items with their inputs as dim tags",
-        source: "<details>\n<summary>Todo</summary>\n<ol>\n<li><input type=\"checkbox\" checked disabled> one</li>\n<li><input type=\"checkbox\"> two</li>\n</ol>\n</details>\n",
-        blocks: r#"
-            details "Todo" @1=0..146
-              list start=1 @3=34..135
-                item
-                  p "<input type=\"checkbox\" checked disabled> one" @4~0..146
-                item
-                  p "<input type=\"checkbox\"> two" @5~0..146
         "#,
     },
 ];
@@ -3552,24 +3448,6 @@ pub const HIDE_ROWS_ALL: &[Row] = &[
         blocks: r#"
             centred @1=0..21
               p "Text" @1~0..21
-        "#,
-    },
-    Row {
-        name: "a task box is read, not hidden, and a box elsewhere is left out",
-        source: "<ul>\n<li><input type=\"checkbox\" checked> a</li>\n<li>b <input type=\"checkbox\"></li>\n</ul>\n",
-        blocks: r#"
-            list @1=0..88
-              item [x]
-                p "a" @2~0..88
-              item
-                p "b" @3~0..88
-        "#,
-    },
-    Row {
-        name: "a box outside a list is left out at hide, as any tag with no effect",
-        source: "<input type=\"checkbox\">x\n",
-        blocks: r#"
-            p "x" @1=0..24
         "#,
     },
     Row {

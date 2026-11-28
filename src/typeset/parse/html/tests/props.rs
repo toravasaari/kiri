@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 61] = [
+const PIECES: [&str; 60] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -82,8 +82,6 @@ const PIECES: [&str; 61] = [
     // alone and beside text.
     "<summary><h1 align=\"center\">MARK</h1></summary>",
     "<summary>MARK<h1>MARK <b>MARK</b></h1>MARK</summary>",
-    // A task box: read as a box where an item starts with it, else a tag.
-    "<input type=\"checkbox\" checked>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -235,7 +233,6 @@ fn no_tag_is_shown(
 ) -> Result<(), proptest::test_runner::TestCaseError> {
     for name in [
         "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
-        "input",
     ] {
         for end in [false, true] {
             prop_assert_eq!(
@@ -340,9 +337,7 @@ proptest! {
     ) {
         let document = parse_all(&source);
         let shown = format!("{:?}", document.blocks);
-        for name in [
-            "p", "div", "center", "details", "summary", "a", "h1", "img", "ul", "ol", "li", "input",
-        ] {
+        for name in ["p", "div", "center", "details", "summary", "a", "h1", "img", "ul", "ol", "li"] {
             for end in [false, true] {
                 let (in_source, in_reading) =
                     (count_tags(&source, name, end), count_tags(&shown, name, end));

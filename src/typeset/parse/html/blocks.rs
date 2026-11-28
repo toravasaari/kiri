@@ -175,7 +175,7 @@ pub(super) type Round = Option<(usize, Sourcepos)>;
 
 pub(super) struct Reader<'t> {
     /// The level of HTML that is read.
-    pub(super) level: HtmlLevel,
+    level: HtmlLevel,
     /// What becomes of the tags that have no effect.
     tags: HtmlTags,
     pub(super) tree: &'t Tree,
@@ -421,7 +421,7 @@ impl<'t> Reader<'t> {
     }
 
     /// Whether `node` is white space in a run of text.
-    pub(super) fn blank(&self, node: usize) -> bool {
+    fn blank(&self, node: usize) -> bool {
         matches!(self.tree.nodes[node].kind, NodeKind::Text)
             && self
                 .written(&self.tree.nodes[node].at)
