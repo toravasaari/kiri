@@ -2,6 +2,7 @@ use super::*;
 use crate::typeset::model::Block;
 
 mod browser;
+mod elements;
 mod props;
 mod rows;
 mod table;
