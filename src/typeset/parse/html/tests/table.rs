@@ -235,8 +235,13 @@ fn write_blocks(
                 write_blocks(document, inner, path, depth + 1, out);
             }
             Block::List(list) => {
-                for (item, ListItem { blocks, .. }) in list.items.iter().enumerate() {
-                    writeln!(out, "{indent}  item").unwrap();
+                for (item, ListItem { blocks, checked }) in list.items.iter().enumerate() {
+                    let task = match checked {
+                        None => "",
+                        Some(true) => " [x]",
+                        Some(false) => " [ ]",
+                    };
+                    writeln!(out, "{indent}  item{task}").unwrap();
                     path.push(item);
                     write_blocks(document, blocks, path, depth + 2, out);
                     path.pop();
