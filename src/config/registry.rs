@@ -599,7 +599,7 @@ settings! {
     }
     markdown {
         /// The level of HTML in Markdown that is read: what GitHub shows, or
-        /// all that kiri reads, `<u>` and `<center>` as well.
+        /// all that kiri reads, `<u>`, `<center>` and task boxes as well.
         markdown_html in html: HtmlLevel = HtmlLevel::Github;
         key "markdown.html", owner "typeset::parse", effect Layout, medium Both, scope File,
         flag None, help None, env Env::NONE;

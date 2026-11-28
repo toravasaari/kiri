@@ -41,7 +41,7 @@ pub enum HtmlLevel {
     /// What GitHub shows.
     #[default]
     Github,
-    /// All that kiri reads: `<u>` and `<center>` as well.
+    /// All that kiri reads: `<u>`, `<center>` and task boxes as well.
     All,
 }
 
