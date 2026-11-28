@@ -14,11 +14,10 @@
 //!   that centres is a centred block, one that does not is transparent, a
 //!   `<details>` with its `<summary>` is a details, `<h1>` to `<h6>` a heading,
 //!   `<pre>` a code block, and a `<ul>` or `<ol>` of items a list (`lists.rs`).
-//!   An `<li>` that no list reads is dim tags and what it holds, as is an
-//!   element that holds what its row does not allow: its two tags are dim,
-//!   and what it holds is read on its own. An element that is source for
-//!   now is its source as written when no Markdown block is in it, and else
-//!   its dim tags and what it holds.
+//!   An `<li>` that no list reads has its tags dim and what it holds is read
+//!   on its own; so does an element that holds what its row does not allow.
+//!   An element that is source for now is its source as written when no
+//!   Markdown block is in it, and else its dim tags and what it holds.
 //! - An unpaired tag is a dim tag, a block of its own that cuts a run of
 //!   text, and what an unpaired element holds is read as what the element
 //!   round it holds.

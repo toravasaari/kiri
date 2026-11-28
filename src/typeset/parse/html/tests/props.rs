@@ -316,8 +316,9 @@ proptest! {
     /// What can be said without reading the whole tree, from the debug text
     /// of what was read:
     ///
-    /// - for the tags of the first list below, the copies shown dim are no more than the ones in
-    ///   the source (none made up or shown twice);
+    /// - for the tags named in the first loop of the body, the copies shown
+    ///   dim are no more than the ones in the source (none made up or shown
+    ///   twice);
     /// - a `<details>` of the source is a `Block::Details` or shown dim;
     ///   the same for `<summary>`, whose read form is a `Details` with a
     ///   summary of its own, so none is lost;
@@ -350,7 +351,7 @@ proptest! {
         // An end tag is shown dim, or it ends an element whose start tag was
         // read: the end tags that were read are no more than the start tags
         // that were read. A stray end tag that is lost breaks this.
-        for name in ["p", "div", "center", "details", "summary", "a", "h1"] {
+        for name in ["p", "div", "center", "details", "summary", "a", "h1", "ul", "ol", "li"] {
             let read_starts = count_tags(&source, name, false) - count_tags(&shown, name, false);
             let read_ends = count_tags(&source, name, true) - count_tags(&shown, name, true);
             prop_assert!(

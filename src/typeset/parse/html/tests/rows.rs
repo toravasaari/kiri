@@ -2564,6 +2564,39 @@ pub const ROWS: &[Row] = &[
                 p "two" @4~19..37
         "#,
     },
+    // A stray end tag directly in a list is not allowed there: the list
+    // dissolves, where a browser would keep it (ledger).
+    Row {
+        name: "a stray end tag directly in a ul dissolves it",
+        source: "<ul>\n<li>a</li>\n</li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..38
+            html "<li>" @2~0..38
+            p "a" @2~0..38
+            html "</li>" @2~0..38
+            html "</li>" @3~0..38
+            html "<li>" @4~0..38
+            p "b" @4~0..38
+            html "</li>" @4~0..38
+            html "</ul>\n" @5~0..38
+        "#,
+    },
+    // A table that a Markdown block cuts is dissolved, and a list in it is
+    // read as a list: lists in cells are 4.10.2.7's (ledger).
+    Row {
+        name: "a list in a table that a markdown block cuts is a list",
+        source: "<table>\n<tr><td>\n\n**b**\n\n<ul><li>x</li></ul>\n</td></tr>\n</table>\n",
+        blocks: r#"
+            html "<table>" @1~0..16
+            html "<tr><td>\n" @2~0..16
+            p "**b**" @4=18..23
+            list @6=25..44
+              item
+                p "x" @6~25..64
+            html "</td></tr>" @7~25..64
+            html "</table>\n" @8~25..64
+        "#,
+    },
     Row {
         name: "a plain ul is a bullet list",
         source: "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n",
@@ -2989,6 +3022,14 @@ pub const GITHUB_ROWS: &[Row] = &[
 /// is shown as written stays: a block that is source for now, a comment
 /// alone, and what the tokenizer cannot read.
 pub const HIDE_ROWS: &[Row] = &[
+    Row {
+        name: "a stray end tag directly in a ul dissolves it, and is left out at hide",
+        source: "<ul>\n<li>a</li>\n</li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            p "a" @2~0..38
+            p "b" @4~0..38
+        "#,
+    },
     Row {
         name: "a tag with no effect in an item is left out of its paragraph at hide",
         source: "<ul>\n<li>a <foo>b</foo></li>\n</ul>\n",

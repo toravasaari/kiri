@@ -258,7 +258,8 @@ const fn phrase(name: &'static str, level: Level, phrase: Phrase) -> Element {
     )
 }
 
-/// A block element of GitHub's list that kiri leaves as source for now.
+/// A block element of GitHub's list that kiri leaves as source for now; a
+/// row that is read overrides its treatment, as `ul`, `ol` and `li` do.
 const fn source_block(name: &'static str) -> Element {
     row(
         name,
@@ -483,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_rows_that_say_so_are_headings_phrases_wrappers_and_source() {
+    fn only_the_rows_that_say_so_are_headings_phrases_wrappers_lists_and_source() {
         let names = |keep: fn(&Element) -> bool| -> Vec<&str> {
             TABLE
                 .iter()
