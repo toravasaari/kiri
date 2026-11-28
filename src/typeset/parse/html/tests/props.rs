@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 57] = [
+const PIECES: [&str; 60] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -70,6 +70,11 @@ const PIECES: [&str; 57] = [
     "</li>",
     "<ul>",
     "</ul>",
+    // An ordered list with a start, and one whose start is too long to be a
+    // number of comrak's.
+    "<ol start=\"3\">",
+    "<ol start=\"99999999999999999999\">",
+    "</ol>",
     "<dd>",
     "</dd>",
     "<div>x < y MARK</div>",
@@ -299,7 +304,7 @@ proptest! {
         // whatever tags are in them: `hide` never hides source.
         // So is an HTML block that cannot be read: the one with `x < y`.
         prop_assume!(!source.contains("x < y"));
-        for name in ["pre", "script", "textarea", "table", "dl", "hr", "ul", "li", "dd"] {
+        for name in ["pre", "script", "textarea", "table", "dl", "hr", "ul", "ol", "li", "dd"] {
             prop_assume!(!shows_source_of(&shown, name));
         }
         no_tag_is_shown(&source, &marks, &shown)?;
@@ -311,7 +316,7 @@ proptest! {
     /// What can be said without reading the whole tree, from the debug text
     /// of what was read:
     ///
-    /// - for eight tags, the copies shown dim are no more than the ones in
+    /// - for the tags of the first list below, the copies shown dim are no more than the ones in
     ///   the source (none made up or shown twice);
     /// - a `<details>` of the source is a `Block::Details` or shown dim;
     ///   the same for `<summary>`, whose read form is a `Details` with a
@@ -331,7 +336,7 @@ proptest! {
     ) {
         let document = parse_all(&source);
         let shown = format!("{:?}", document.blocks);
-        for name in ["p", "div", "center", "details", "summary", "a", "h1", "img"] {
+        for name in ["p", "div", "center", "details", "summary", "a", "h1", "img", "ul", "ol", "li"] {
             for end in [false, true] {
                 let (in_source, in_reading) =
                     (count_tags(&source, name, end), count_tags(&shown, name, end));

@@ -12,11 +12,13 @@
 //! - A Markdown block is itself.
 //! - A block element is what its row says: a `<p>`, `<div>` or `<center>`
 //!   that centres is a centred block, one that does not is transparent, a
-//!   `<details>` with its `<summary>` is a details, `<h1>` to `<h6>` a heading
-//!   and `<pre>` a code block. An element that holds what its row does not
-//!   allow shows its two tags as dim tags, and what it holds is read on its
-//!   own. An element that is source for now is its source as written when
-//!   no Markdown block is in it, and else its dim tags and what it holds.
+//!   `<details>` with its `<summary>` is a details, `<h1>` to `<h6>` a heading,
+//!   `<pre>` a code block, and a `<ul>` or `<ol>` of items a list (`lists.rs`).
+//!   An `<li>` that no list reads is dim tags and what it holds, as is an
+//!   element that holds what its row does not allow: its two tags are dim,
+//!   and what it holds is read on its own. An element that is source for
+//!   now is its source as written when no Markdown block is in it, and else
+//!   its dim tags and what it holds.
 //! - An unpaired tag is a dim tag, a block of its own that cuts a run of
 //!   text, and what an unpaired element holds is read as what the element
 //!   round it holds.
@@ -170,18 +172,18 @@ pub(in crate::typeset::parse) fn read(
 
 /// The element read round a block, when it is in one HTML block: blocks of
 /// that HTML block inside it are placed inside it.
-type Round = Option<(usize, Sourcepos)>;
+pub(super) type Round = Option<(usize, Sourcepos)>;
 
-struct Reader<'t> {
+pub(super) struct Reader<'t> {
     /// The level of HTML that is read.
     level: HtmlLevel,
     /// What becomes of the tags that have no effect.
     tags: HtmlTags,
-    tree: &'t Tree,
+    pub(super) tree: &'t Tree,
     html: &'t [Option<HtmlBlock<'t>>],
     /// The blocks of each block of Markdown, taken when it is read.
     markdown: Vec<Option<Vec<(Block, Position)>>>,
-    children: Vec<Vec<usize>>,
+    pub(super) children: Vec<Vec<usize>>,
     last: Vec<usize>,
     /// The last byte in each node, as `read` makes it.
     extent: Vec<(usize, usize)>,
@@ -374,7 +376,7 @@ impl<'t> Reader<'t> {
 
     /// Where the element `open` at `node` is, and what it is as the element
     /// round the blocks in it.
-    fn element_place(&self, node: usize, open: &Opened) -> (Position, Round) {
+    pub(super) fn element_place(&self, node: usize, open: &Opened) -> (Position, Round) {
         let ((first, start), (last, end)) = self.ends(node, open);
         let start_byte = start;
         let (from, to) = (self.block(first), self.block(last));
@@ -557,6 +559,11 @@ impl<'t> Reader<'t> {
             // An `<li>` that no list reads, such as one in a `<div>`, has no
             // effect either.
             Treatment::Item => self.dissolve(node, open, round, out),
+            Treatment::List => {
+                if !self.list(node, open, position, out) {
+                    self.as_written(node, open, round, out);
+                }
+            }
             // The elements that are source for now.
             _ => self.as_written(node, open, round, out),
         }
@@ -589,7 +596,12 @@ impl<'t> Reader<'t> {
     }
 
     /// The blocks that `node` holds, but for the node `skip`.
-    fn inside(&mut self, node: usize, skip: Option<usize>, round: Round) -> Vec<(Block, Position)> {
+    pub(super) fn inside(
+        &mut self,
+        node: usize,
+        skip: Option<usize>,
+        round: Round,
+    ) -> Vec<(Block, Position)> {
         let mut blocks = Vec::new();
         let mut run = Vec::new();
         self.read_children_but(node, skip, round, &mut blocks, &mut run);

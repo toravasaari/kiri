@@ -178,14 +178,15 @@ pub const ROWS: &[Row] = &[
               html "<table><tr><td>x</td></tr></table>" @2~0..62
         "#,
     },
-    // P2, read by the tree: a centred div holds a list, which it may: centred,
-    // the list source for now.
+    // P2, read by the tree: a centred div holds a list, which it may: centred.
     Row {
-        name: "a list in a one-block wrapper is source in the centred block",
+        name: "a list in a one-block wrapper is a list in the centred block",
         source: "<div align=\"center\">\n<ul><li>x</li></ul>\n</div>\n",
         blocks: r#"
             centred @1=0..47
-              html "<ul><li>x</li></ul>" @2~0..47
+              list @2=21..40
+                item
+                  p "x" @2~0..47
         "#,
     },
     // A centred div holds text with a span, which it may: centred, and the
@@ -513,7 +514,7 @@ pub const ROWS: &[Row] = &[
         name: "a split wrapper in a list item",
         source: "- <center>\n\n  x\n\n  </center>\n",
         blocks: r#"
-            list @1=0..28
+            list loose @1=0..28
               item
                 centred @1=2..28
                   p "x" @3=14..15
@@ -1117,7 +1118,7 @@ pub const ROWS: &[Row] = &[
         name: "a details in a list item",
         source: "- Item\n  <details>\n  <summary>S</summary>\n\n  In.\n\n  </details>\n",
         blocks: r#"
-            list @1=0..62
+            list loose @1=0..62
               item
                 p "Item" @1=2..6
                 details "S" @2=9..62
@@ -1902,7 +1903,7 @@ pub const ROWS: &[Row] = &[
         source: "<div align=\"center\">\n\n- item\n\n  </div>\n\nAfter.\n",
         blocks: r#"
             html "<div align=\"center\">\n" @1=0..20
-            list @3=22..38
+            list loose @3=22..38
               item
                 p "item" @3=24..28
                 html "</div>\n" @5=32..38
@@ -1913,7 +1914,7 @@ pub const ROWS: &[Row] = &[
         name: "a wrapper start in a list item is not ended outside it",
         source: "- <div align=\"center\">\n\n  x\n\n</div>\n",
         blocks: r#"
-            list @1=0..27
+            list loose @1=0..27
               item
                 html "<div align=\"center\">\n" @1=2..22
                 p "x" @3=26..27
@@ -2104,14 +2105,6 @@ pub const ROWS: &[Row] = &[
         blocks: r#"
             html "<table>\n<tr><td>a</td></tr>\n" @1=0..27
             html "<tr><td>b</td></tr>\n</table>\n" @4=29..57
-        "#,
-    },
-    Row {
-        name: "a list that a blank line splits stays source, a block for each part",
-        source: "<ul>\n<li>one</li>\n\n<li>two</li>\n</ul>\n",
-        blocks: r#"
-            html "<ul>\n<li>one</li>\n" @1=0..17
-            html "<li>two</li>\n</ul>\n" @4=19..37
         "#,
     },
     Row {
@@ -2388,41 +2381,44 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a div of li and ul keeps the end tags of the list",
+        name: "an li in a div is dim tags, and the ul in it is a list",
         source: "<div><li>a<ul><li>b</li></ul></div>\n",
         blocks: r#"
             html "<li>" @1~0..35
             p "a" @1~0..35
-            html "<ul><li>b</li></ul>" @1~0..35
+            list @1=10..29
+              item
+                p "b" @1~0..35
         "#,
     },
     // An `<li>` that no list reads has no effect: its tags are dim and what
-    // it holds is read on its own, whatever ended it.
+    // it holds is read on its own, whatever ended it. In a list it is an
+    // item, however it ended.
     Row {
-        name: "an li ended by the next li, with a markdown block after, is dim tags",
+        name: "an li ended by the next li, with a markdown block after, is an item",
         source: "<ul>\n<li>one\n<li>two\n\nSome text.\n\n</ul>\n",
         blocks: r#"
-            html "<ul>" @1~0..20
-            html "<li>" @2~0..20
-            p "one" @2~0..20
-            html "<li>" @3~0..20
-            p "two" @3~0..20
-            p "Some text." @5=22..32
-            html "</ul>\n" @7=34..39
+            list loose @1=0..39
+              item
+                p "one" @2~0..20
+              item
+                p "two" @3~0..20
+                p "Some text." @5=22..32
         "#,
     },
     Row {
-        name: "an li and a list ended by the next li, with a markdown block after, is dim tags",
+        name: "an li and a list ended by the next li, with a markdown block after, are items",
         source: "<ul>\n<li>a\n<ul>\n<li>b\n</ul>\n<li>c\n\nmd\n\n</ul>\n",
         blocks: r#"
-            html "<ul>" @1~0..33
-            html "<li>" @2~0..33
-            p "a" @2~0..33
-            html "<ul>\n<li>b\n</ul>" @3~0..33
-            html "<li>" @6~0..33
-            p "c" @6~0..33
-            p "md" @8=35..37
-            html "</ul>\n" @10=39..44
+            list loose @1=0..44
+              item
+                p "a" @2~0..33
+                list @3=11..27
+                  item
+                    p "b" @4~0..33
+              item
+                p "c" @6~0..33
+                p "md" @8=35..37
         "#,
     },
     Row {
@@ -2474,18 +2470,22 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "an ol of only li, white space and a comment is source, as before",
+        name: "an ol of only li, white space and a comment is a list",
         source: "<ol>\n<!-- one -->\n<li>a</li>\n</ol>\n",
         blocks: r#"
-            html "<ol>\n<!-- one -->\n<li>a</li>\n</ol>\n" @1=0..34
+            list start=1 @1=0..34
+              item
+                p "a" @3~0..34
         "#,
     },
     Row {
-        name: "a ul directly in a ul dissolves the outer list, the inner one stays source",
+        name: "a ul directly in a ul dissolves the outer list, the inner one is a list",
         source: "<ul><ul><li>x</li></ul></ul>\n",
         blocks: r#"
             html "<ul>" @1~0..28
-            html "<ul><li>x</li></ul>" @1~0..28
+            list @1=4..23
+              item
+                p "x" @1~0..28
             html "</ul>\n" @1~0..28
         "#,
     },
@@ -2538,10 +2538,12 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "upper-case ul and li stay source, as their names are not the table's",
+        name: "upper-case ul and li are read as a list",
         source: "<UL><LI>a</LI></UL>\n",
         blocks: r#"
-            html "<UL><LI>a</LI></UL>\n" @1=0..19
+            list @1=0..19
+              item
+                p "a" @1~0..19
         "#,
     },
     Row {
@@ -2549,6 +2551,243 @@ pub const ROWS: &[Row] = &[
         source: "<ul></ul>\n",
         blocks: r#"
             html "<ul></ul>\n" @1=0..9
+        "#,
+    },
+    Row {
+        name: "a list that a blank line splits is one list",
+        source: "<ul>\n<li>one</li>\n\n<li>two</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..37
+              item
+                p "one" @2~0..17
+              item
+                p "two" @4~19..37
+        "#,
+    },
+    Row {
+        name: "a plain ul is a bullet list",
+        source: "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..32
+              item
+                p "a" @2~0..32
+              item
+                p "b" @3~0..32
+        "#,
+    },
+    Row {
+        name: "a plain ol is a numbered list from 1",
+        source: "<ol>\n<li>a</li>\n<li>b</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..32
+              item
+                p "a" @2~0..32
+              item
+                p "b" @3~0..32
+        "#,
+    },
+    Row {
+        name: "an ol with start \"5\" starts from 5",
+        source: "<ol start=\"5\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=5 @1=0..31
+              item
+                p "a" @2~0..31
+        "#,
+    },
+    Row {
+        name: "an ol with start \"0\" starts from 0",
+        source: "<ol start=\"0\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=0 @1=0..31
+              item
+                p "a" @2~0..31
+        "#,
+    },
+    Row {
+        name: "an ol with start \"x\" starts from 1",
+        source: "<ol start=\"x\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..31
+              item
+                p "a" @2~0..31
+        "#,
+    },
+    Row {
+        name: "an ol with start \"\" starts from 1",
+        source: "<ol start=\"\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..30
+              item
+                p "a" @2~0..30
+        "#,
+    },
+    Row {
+        name: "an ol with start \"-3\" starts from 1",
+        source: "<ol start=\"-3\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..32
+              item
+                p "a" @2~0..32
+        "#,
+    },
+    Row {
+        name: "an ol with start \"123456789\" starts from 123456789",
+        source: "<ol start=\"123456789\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=123456789 @1=0..39
+              item
+                p "a" @2~0..39
+        "#,
+    },
+    Row {
+        name: "an ol with start \"1234567890\" starts from 1",
+        source: "<ol start=\"1234567890\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..40
+              item
+                p "a" @2~0..40
+        "#,
+    },
+    Row {
+        name: "an ol with start \"99999999999999999999\" starts from 1",
+        source: "<ol start=\"99999999999999999999\">\n<li>a</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..50
+              item
+                p "a" @2~0..50
+        "#,
+    },
+    Row {
+        name: "li without an end tag ends at the next li and at the end of the list",
+        source: "<ul>\n<li>a\n<li>b\n</ul>\n",
+        blocks: r#"
+            list @1=0..22
+              item
+                p "a" @2~0..22
+              item
+                p "b" @3~0..22
+        "#,
+    },
+    Row {
+        name: "a nested list is tight",
+        source: "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..44
+              item
+                p "a" @2~0..44
+                list @3=11..32
+                  item
+                    p "b" @4~0..44
+        "#,
+    },
+    Row {
+        name: "an item with a paragraph and a block of Markdown makes the list loose",
+        source: "<ul>\n<li>a\n\n**b**\n\n</li>\n</ul>\n",
+        blocks: r#"
+            list loose @1=0..30
+              item
+                p "a" @2~0..10
+                p "**b**" @4=12..17
+        "#,
+    },
+    Row {
+        name: "an item with a p is a paragraph",
+        source: "<ul>\n<li><p>a</p></li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..28
+              item
+                p "a" @2~0..28
+        "#,
+    },
+    Row {
+        name: "an item with two p is loose",
+        source: "<ul>\n<li><p>a</p><p>b</p></li>\n</ul>\n",
+        blocks: r#"
+            list loose @1=0..36
+              item
+                p "a" @2~0..36
+                p "b" @2~0..36
+        "#,
+    },
+    Row {
+        name: "an empty li is an empty item",
+        source: "<ul>\n<li></li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..20
+              item
+        "#,
+    },
+    Row {
+        name: "an li that the next li ended, empty, is an item",
+        source: "<ul><li><li>b</ul>\n",
+        blocks: r#"
+            list @1=0..18
+              item
+              item
+                p "b" @1~0..18
+        "#,
+    },
+    Row {
+        name: "a list in a details",
+        source: "<details>\n<summary>S</summary>\n<ul>\n<li>a</li>\n</ul>\n</details>\n",
+        blocks: r#"
+            details "S" @1=0..63
+              list @3=31..52
+                item
+                  p "a" @4~0..63
+        "#,
+    },
+    Row {
+        name: "an html list in a markdown list item",
+        source: "- item\n\n  <ul>\n  <li>a</li>\n  </ul>\n",
+        blocks: r#"
+            list loose @1=0..35
+              item
+                p "item" @1=2..6
+                list @3=10..35
+                  item
+                    p "a" @4~10..35
+        "#,
+    },
+    Row {
+        name: "an html list in a quote",
+        source: "> <ul>\n> <li>a</li>\n> </ul>\n",
+        blocks: r#"
+            quote @1=0..27
+              list @1=2..27
+                item
+                  p "a" @2~2..27
+        "#,
+    },
+    Row {
+        name: "an ul with only white space stays source",
+        source: "<ul>\n</ul>\n",
+        blocks: r#"
+            html "<ul>\n</ul>\n" @1=0..10
+        "#,
+    },
+    Row {
+        name: "a never-closed ul is an unpaired tag, its items dim tags and paragraphs",
+        source: "<ul>\n<li>a\n<li>b\n",
+        blocks: r#"
+            html "<ul>" @1~0..16
+            html "<li>" @2~0..16
+            p "a" @2~0..16
+            html "<li>" @3~0..16
+            p "b" @3~0..16
+        "#,
+    },
+    Row {
+        name: "the demo: an ol of items with checkboxes in a details, the inputs dim tags",
+        source: "<details>\n<summary>Todo</summary>\n<ol>\n<li><input type=\"checkbox\" checked disabled> one</li>\n<li><input type=\"checkbox\"> two</li>\n</ol>\n</details>\n",
+        blocks: r#"
+            details "Todo" @1=0..146
+              list start=1 @3=34..135
+                item
+                  p "<input type=\"checkbox\" checked disabled> one" @4~0..146
+                item
+                  p "<input type=\"checkbox\"> two" @5~0..146
         "#,
     },
     Row {
@@ -2695,6 +2934,18 @@ pub const ROWS: &[Row] = &[
 /// both levels.
 pub const GITHUB_ROWS: &[Row] = &[
     Row {
+        name: "an ul is read at GitHub's level too, and an ol with its start",
+        source: "<ul>\n<li>a</li>\n</ul>\n\n<ol start=\"3\">\n<li>b</li>\n</ol>\n",
+        blocks: r#"
+            list @1=0..21
+              item
+                p "a" @2~0..21
+            list start=3 @5=23..54
+              item
+                p "b" @6~23..54
+        "#,
+    },
+    Row {
         name: "an ins is underlined at GitHub's level too",
         source: "A <ins>b</ins> c\n",
         blocks: r#"
@@ -2738,6 +2989,30 @@ pub const GITHUB_ROWS: &[Row] = &[
 /// is shown as written stays: a block that is source for now, a comment
 /// alone, and what the tokenizer cannot read.
 pub const HIDE_ROWS: &[Row] = &[
+    Row {
+        name: "a tag with no effect in an item is left out of its paragraph at hide",
+        source: "<ul>\n<li>a <foo>b</foo></li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..34
+              item
+                p "a b" @2~0..34
+        "#,
+    },
+    Row {
+        name: "an li that no list reads has its tags left out at hide",
+        source: "<div><li>a</li></div>\n",
+        blocks: r#"
+            p "a" @1~0..21
+        "#,
+    },
+    Row {
+        name: "an item that holds only a tag with no effect stays an empty item at hide",
+        source: "<ul>\n<li><foo></li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..25
+              item
+        "#,
+    },
     Row {
         name: "a dim tag between blocks is left out",
         source: "Text\n\n</div>\n\nMore\n",
@@ -3115,6 +3390,17 @@ pub const HIDE_ROWS: &[Row] = &[
 /// reads is read, not hidden, and the tags with no effect are left out as
 /// at GitHub's.
 pub const HIDE_ROWS_ALL: &[Row] = &[
+    Row {
+        name: "a list is read at all with the tags hidden: an item and its tag with no effect",
+        source: "<ol>\n<li>a <abbr>b</abbr></li>\n<li>c</li>\n</ol>\n",
+        blocks: r#"
+            list start=1 @1=0..47
+              item
+                p "a b" @2~0..47
+              item
+                p "c" @3~0..47
+        "#,
+    },
     Row {
         name: "center is read at all, not hidden",
         source: "<center>Text</center>\n",

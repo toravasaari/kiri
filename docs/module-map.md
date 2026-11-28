@@ -131,6 +131,7 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 | [`blocks.rs`](../src/typeset/parse/html/blocks.rs) | The tree of the HTML in a container read as the blocks of the model, by the table of elements and the level of HTML. |
 | [`elements.rs`](../src/typeset/parse/html/elements.rs) | The table of HTML elements that kiri knows: one row for each, with its kind, the level of HTML it belongs to, what it holds and how it is treated. |
 | [`inline.rs`](../src/typeset/parse/html/inline.rs) | Tags of HTML in running text joined into the inlines they make. |
+| [`lists.rs`](../src/typeset/parse/html/lists.rs) | The `<ul>` and `<ol>` of a container read as lists of the model, each `<li>` an item whose blocks are read as a `<details>` reads its own. |
 | [`tree.rs`](../src/typeset/parse/html/tree.rs) | The tree of the block elements in the HTML blocks of a document and the Markdown blocks between them, built once from their tokens. Tests: `tests.rs`. |
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)
