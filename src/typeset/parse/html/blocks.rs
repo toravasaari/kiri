@@ -416,7 +416,7 @@ impl<'t> Reader<'t> {
     }
 
     /// Whether `node` holds nothing but white space.
-    fn holds_nothing(&self, node: usize) -> bool {
+    pub(super) fn holds_nothing(&self, node: usize) -> bool {
         self.children[node].iter().all(|&child| self.blank(child))
     }
 

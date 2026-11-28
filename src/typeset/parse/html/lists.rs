@@ -59,7 +59,7 @@ impl Reader<'_> {
             let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
             // Hiding the tags may leave an item with nothing, as in
             // Markdown; what is empty as written, or has a box, stays.
-            let held = self.children[item].iter().any(|&child| !self.blank(child));
+            let held = !self.holds_nothing(item);
             if blocks.is_empty() && task.is_none() && held && self.tags == HtmlTags::Hide {
                 continue;
             }
