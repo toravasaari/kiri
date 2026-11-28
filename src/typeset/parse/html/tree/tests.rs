@@ -151,9 +151,8 @@ fn a_start_tag_of_li_ends_an_open_li() {
         tree("<ul><li>a</li><li>b</li></ul>\n"),
         "ul\n  li\n    text \"a\"\n  li\n    text \"b\"\n"
     );
-    // The end tag of an item that was ended by a start tag has nothing to
-    // end: the `</li>` of the first is the second's, and the other is one too
-    // many.
+    // The first `</li>` ends the second item, which the first item's start
+    // tag ended; the second `</li>` has nothing left to end.
     assert_eq!(
         tree("<li>a<li>b</li></li>\n"),
         "li [implied end]\n  text \"a\"\nli\n  text \"b\"\nunpaired </li>\n"

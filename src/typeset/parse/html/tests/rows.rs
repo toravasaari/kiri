@@ -2394,6 +2394,41 @@ pub const ROWS: &[Row] = &[
             html "<li>a<ul><li>b</li></ul>" @1~0..35
         "#,
     },
+    // The next `<li>` ends an open `<li>`, so the first no longer holds what
+    // a Markdown block after it does, and is shown as source. Step 3 reads
+    // lists and changes these rows.
+    Row {
+        name: "an li ended by the next li, with a markdown block after, is source",
+        source: "<ul>\n<li>one\n<li>two\n\nSome text.\n\n</ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..20
+            html "<li>one\n" @2~0..20
+            html "<li>" @3~0..20
+            p "two" @3~0..20
+            p "Some text." @5=22..32
+            html "</ul>\n" @7=34..39
+        "#,
+    },
+    Row {
+        name: "an li and a list ended by the next li, with a markdown block after, is source",
+        source: "<ul>\n<li>a\n<ul>\n<li>b\n</ul>\n<li>c\n\nmd\n\n</ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..33
+            html "<li>a\n<ul>\n<li>b\n</ul>\n" @2~0..33
+            html "<li>" @6~0..33
+            p "c" @6~0..33
+            p "md" @8=35..37
+            html "</ul>\n" @10=39..44
+        "#,
+    },
+    Row {
+        name: "an li ended by the next li in a div shows the first tag dim",
+        source: "<div><li><li>b</div>\n",
+        blocks: r#"
+            html "<li>" @1~0..20
+            html "<li>b" @1~0..20
+        "#,
+    },
     Row {
         name: "a div of dd and a table keeps the end tag of the table",
         source: "<div>\n<dd>a<table><tr><td>b</td></tr></table></div>\n",
