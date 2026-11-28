@@ -100,6 +100,15 @@ others, and so does the list in the details, which is numbered from 1.
 
 </details>
 
+A `<center>` in an item does not loosen the list. At the default level the
+tags of `<center>` show dim, so the text is not centred, and the two items sit
+close together, as the Markdown list `- <center>a</center>` then `- b` does.
+
+<ul>
+  <li><center>A centred item</center></li>
+  <li>The item after it</li>
+</ul>
+
 ### Task boxes in HTML
 
 With `html = "all"` in the `[markdown]` table of the configuration file, an
