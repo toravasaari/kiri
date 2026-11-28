@@ -7,6 +7,9 @@
 //! that no list reads is dissolved on its own, so a list with no item at all
 //! is left to the caller, as source.
 //!
+//! - At `html_tags = "hide"` an item that held something as written and draws
+//!   nothing now is dropped, and the list when no item is left, as in
+//!   Markdown; `<li></li>` and an item with a task box stay.
 //! - `<ol start>` numbers from a number of at most nine digits, the most
 //!   that comrak takes, and from 1 for anything else; a `<ul>` has no start.
 //! - The list is tight unless an item holds two blocks that are not lists, so
@@ -18,7 +21,7 @@
 //!   tag is no text of the item. Elsewhere a box is a tag with no effect.
 
 use super::blocks::Reader;
-use super::elements::{self, Treatment};
+use super::elements::{self, HtmlTags, Treatment};
 use super::tree::{NodeKind, Opened};
 use crate::typeset::model::{Block, List, ListItem};
 use crate::typeset::parse::Position;
@@ -52,11 +55,20 @@ impl Reader<'_> {
             let task = self.task_box(item);
             let blocks = self.inside(item, task.map(|(node, _)| node), None);
             let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
+            // Hiding the tags may leave an item with nothing, as in
+            // Markdown; what is empty as written, or has a box, stays.
+            let held = self.children[item].iter().any(|&child| !self.blank(child));
+            if blocks.is_empty() && task.is_none() && held && self.tags == HtmlTags::Hide {
+                continue;
+            }
             read.push(ListItem {
                 checked: task.map(|(_, ticked)| ticked),
                 blocks,
             });
             places.push(Position { at: None, children });
+        }
+        if read.is_empty() {
+            return true;
         }
         let tight = read.iter().all(|item| {
             let flat = (item.blocks.iter()).filter(|block| !matches!(block, Block::List(_)));

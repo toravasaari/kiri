@@ -177,7 +177,7 @@ pub(super) struct Reader<'t> {
     /// The level of HTML that is read.
     pub(super) level: HtmlLevel,
     /// What becomes of the tags that have no effect.
-    tags: HtmlTags,
+    pub(super) tags: HtmlTags,
     pub(super) tree: &'t Tree,
     html: &'t [Option<HtmlBlock<'t>>],
     /// The blocks of each block of Markdown, taken when it is read.

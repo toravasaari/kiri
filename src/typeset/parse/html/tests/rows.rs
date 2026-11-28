@@ -3151,10 +3151,26 @@ pub const HIDE_ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "an item that holds only a tag with no effect stays an empty item at hide",
+        name: "an item that holds only a tag with no effect goes at hide, and its list when none is left",
         source: "<ul>\n<li><foo></li>\n</ul>\n",
         blocks: r#"
-            list @1=0..25
+        "#,
+    },
+    Row {
+        name: "an item that holds only a tag with no effect goes at hide, the others stay",
+        source: "<ul>\n<li><foo></li>\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..36
+              item
+                p "b" @3~0..36
+        "#,
+    },
+    Row {
+        name: "an item that is empty as written stays an item at hide",
+        source: "<ul>\n<li></li>\n<li> </li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..31
+              item
               item
         "#,
     },
@@ -3563,6 +3579,14 @@ pub const HIDE_ROWS_ALL: &[Row] = &[
                 p "a" @2~0..88
               item
                 p "b" @3~0..88
+        "#,
+    },
+    Row {
+        name: "an item that holds only a task box is not emptied by hiding",
+        source: "<ul>\n<li><input type=\"checkbox\"></li>\n<li><foo></li>\n</ul>\n",
+        blocks: r#"
+            list @1=0..58
+              item [ ]
         "#,
     },
     Row {
