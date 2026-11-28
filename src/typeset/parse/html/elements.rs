@@ -85,6 +85,8 @@ pub enum EndedBy {
     Nothing,
     /// The start tag of any block element, as a `<p>` is.
     AnyBlock,
+    /// A start tag of one of these names, as an `<li>` is by another `<li>`.
+    Names(&'static [&'static str]),
 }
 
 /// Whether the start tag of an element centres what it holds.
@@ -401,6 +403,7 @@ pub static TABLE: [Element; 46] = [
     source_block("ul"),
     Element {
         end_optional: true,
+        ended_by: EndedBy::Names(&["li"]),
         ..source_block("li")
     },
     source_block("table"),
