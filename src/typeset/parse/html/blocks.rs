@@ -171,7 +171,7 @@ pub(in crate::typeset::parse) fn read(
 
 /// The element read round a block, when it is in one HTML block: blocks of
 /// that HTML block inside it are placed inside it.
-pub(super) type Round = Option<(usize, Sourcepos)>;
+type Round = Option<(usize, Sourcepos)>;
 
 pub(super) struct Reader<'t> {
     /// The level of HTML that is read.
@@ -375,7 +375,7 @@ impl<'t> Reader<'t> {
 
     /// Where the element `open` at `node` is, and what it is as the element
     /// round the blocks in it.
-    pub(super) fn element_place(&self, node: usize, open: &Opened) -> (Position, Round) {
+    fn element_place(&self, node: usize, open: &Opened) -> (Position, Round) {
         let ((first, start), (last, end)) = self.ends(node, open);
         let start_byte = start;
         let (from, to) = (self.block(first), self.block(last));
