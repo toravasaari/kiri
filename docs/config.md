@@ -927,8 +927,9 @@ once.
 
 Markdown may hold HTML, and kiri reads the tags it knows: `<div>` and `<p>`
 that centre, `<center>`, `<details>` and `<summary>`, `<h1>` to `<h6>`,
-`<pre>`, `<img>`, `<picture>`, `<a>`, `<br>` and the tags of text such as
-`<b>`, `<kbd>`, `<ins>` and `<strike>`. A `<span>` draws nothing of its own,
+`<ul>` and `<ol>` with their `<li>`, drawn as lists, `<pre>`, `<img>`,
+`<picture>`, `<a>`, `<br>` and the tags of text such as `<b>`, `<kbd>`,
+`<ins>` and `<strike>`. A `<span>` draws nothing of its own,
 so what is in it is read as if its tags were not there. Which of the tags
 kiri reads is the key `html` in the `[markdown]` table of the configuration
 file, with no flag and no environment variable:
