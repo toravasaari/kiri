@@ -2476,6 +2476,51 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "a markdown block between two items dissolves the list",
+        source: "<ul>\n<li>a</li>\n\ntext\n\n<li>b</li>\n</ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..15
+            html "<li>a</li>\n" @2~0..15
+            p "text" @4=17..21
+            html "<li>b</li>" @6~23..39
+            html "</ul>\n" @7~23..39
+        "#,
+    },
+    Row {
+        name: "a phrase directly in a ul dissolves it, the phrase a paragraph",
+        source: "<ul>\n<li>a</li>\n<b>x</b>\n</ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..30
+            html "<li>a</li>" @2~0..30
+            p "**x**" @3~0..30
+            html "</ul>\n" @4~0..30
+        "#,
+    },
+    Row {
+        name: "a void tag directly in a ul dissolves it, and the item stays",
+        source: "<ul><li>a</li><br></ul>\n",
+        blocks: r#"
+            html "<ul>" @1~0..23
+            html "<li>a</li>" @1~0..23
+            p "<br>" @1~0..23
+            html "</ul>\n" @1~0..23
+        "#,
+    },
+    Row {
+        name: "upper-case ul and li stay source, as their names are not the table's",
+        source: "<UL><LI>a</LI></UL>\n",
+        blocks: r#"
+            html "<UL><LI>a</LI></UL>\n" @1=0..19
+        "#,
+    },
+    Row {
+        name: "an empty ul stays source",
+        source: "<ul></ul>\n",
+        blocks: r#"
+            html "<ul></ul>\n" @1=0..9
+        "#,
+    },
+    Row {
         name: "a div of dd and a table keeps the end tag of the table",
         source: "<div>\n<dd>a<table><tr><td>b</td></tr></table></div>\n",
         blocks: r#"
