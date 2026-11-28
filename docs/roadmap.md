@@ -699,12 +699,15 @@ Opening and closing `<details>` needs G1.11.2 and G7.3.4.
 - Centred headings and paragraphs, such as `<h1 align="center">` and
   `<p align="center">` around text, as README titles often are. (done)
 
-##### 4.10.2.6 HTML lists and tables
+##### 4.10.2.6 HTML lists
 
 - HTML lists, `<ul>`, `<ol>` and `<li>`, drawn as Markdown lists, also
   inside `<details>`, with `<input type="checkbox">` as a task list box.
-- An HTML `<table>`, with `<thead>`, `<th>` and `<td align>`, drawn as a
-  Markdown table, with images and other inline HTML in its cells.
+
+##### 4.10.2.7 HTML tables
+
+- An HTML `<table>`, with `<thead>` and `<th>`, drawn as a Markdown table,
+  with images and other inline HTML in its cells.
 
 #### 4.10.3 Fractional sizes
 
