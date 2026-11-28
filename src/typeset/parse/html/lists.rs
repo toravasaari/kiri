@@ -23,10 +23,10 @@
 //!   tag is no text of the item. Elsewhere a box is a tag with no effect.
 
 use super::blocks::Reader;
-use super::elements::{self, HtmlTags, Treatment};
+use super::elements::{self, Treatment};
 use super::tree::{NodeKind, Opened};
 use crate::typeset::model::{Block, List, ListItem};
-use crate::typeset::parse::Position;
+use crate::typeset::parse::{Position, emptied};
 
 /// The most digits of a number that `start` may have: comrak's limit.
 const START_DIGITS: usize = 9;
@@ -60,7 +60,7 @@ impl Reader<'_> {
             // Hiding the tags may leave an item with nothing, as in
             // Markdown; what is empty as written, or has a box, stays.
             let held = !self.holds_nothing(item);
-            if blocks.is_empty() && task.is_none() && held && self.tags == HtmlTags::Hide {
+            if emptied(held, blocks.is_empty() && task.is_none(), self.tags) {
                 continue;
             }
             read.push(ListItem {
